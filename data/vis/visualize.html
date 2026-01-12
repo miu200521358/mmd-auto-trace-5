@@ -5,7 +5,7 @@
   <meta http-equiv="content-type" content="text/html; charset=UTF-8">
   <title>Viz Pos</title>
 
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
 
   <style id="compiled-css" type="text/css">
     #dropzone {
@@ -236,13 +236,13 @@
         bone_names[key] = poslist[i].name
       }
 
-      var order = [['Top of Head (LSP)', 'OP Nose', 'OP Neck', 'Spine (H36M)', 'Pelvis (MPII)', 'OP MidHip', 'Pelvis2'],
-      ['OP Neck', 'OP LShoulder', 'OP LElbow', 'OP LWrist'],
-      ['OP Neck', 'OP RShoulder', 'OP RElbow', 'OP RWrist'],
-      ['OP MidHip', 'OP RHip', 'OP RKnee', 'OP RAnkle', 'OP RBigToe'],
-      ['OP MidHip', 'OP LHip', 'OP LKnee', 'OP LAnkle', 'OP LBigToe'],
-      ['OP LEar', 'OP LEye', 'OP Nose'],
-      ['OP REar', 'OP REye', 'OP Nose'],
+      var order = [['head', 'jaw', 'neck', 'spine3', 'spine2', 'spine1', 'pelvis'],
+      ['neck', 'left_collar', 'left_shoulder', 'left_elbow', 'left_wrist'],
+      ['neck', 'right_collar', 'right_shoulder', 'right_elbow', 'right_wrist'],
+      ['pelvis', 'right_hip', 'right_knee', 'right_ankle', 'right_foot', 'right_big_toe'],
+      ['pelvis', 'left_hip', 'left_knee', 'left_ankle', 'left_foot', 'left_big_toe'],
+      ['left_ear', 'left_eye', 'nose1'],
+      ['right_ear', 'right_eye', 'nose1'],
       ];
       var x = [];
       var y = [];
