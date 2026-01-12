@@ -19,6 +19,10 @@
       color: #e6e6e6;
       font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
     #toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -40,10 +44,39 @@
     #toolbar input[type="range"] {
       width: 200px;
     }
+    #dropZone {
+      margin: 6px 10px;
+      padding: 8px;
+      border: 1px dashed #2f3746;
+      border-radius: 6px;
+      text-align: center;
+      color: #8b96a5;
+      background: #12151c;
+      font-size: 12px;
+    }
+    #dropZone.dragover {
+      border-color: #5aa9e6;
+      background: #182233;
+      color: #cfe6ff;
+    }
     #renderCanvas {
+      flex: 1;
       width: 100%;
-      height: calc(100% - 56px);
+      height: 100%;
       display: block;
+    }
+    #tooltip {
+      position: fixed;
+      display: none;
+      padding: 6px 8px;
+      background: rgba(20, 23, 30, 0.95);
+      border: 1px solid #2a313d;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+      pointer-events: none;
+      white-space: pre;
+      z-index: 10;
     }
     #status {
       margin-left: auto;
@@ -73,7 +106,7 @@
 </head>
 <body>
   <div id="toolbar">
-    <input type="file" id="fileInput" accept=".json">
+    <input type="file" id="fileInput" accept=".json" multiple>
     <button id="loadDefault">Load default JSON</button>
     <label>Space
       <select id="jointSpace">
@@ -112,7 +145,9 @@
     </div>
     <span id="status">Load a JSON file to begin.</span>
   </div>
+  <div id="dropZone">Drop JSON files here</div>
   <canvas id="renderCanvas"></canvas>
+  <div id="tooltip"></div>
   <script>
     (() => {
       const DEFAULT_JSON = "../../../sources/45seconds/output/json/joints_3d_human_0.json";
@@ -151,6 +186,14 @@
         scene
       );
       camera.attachControl(canvas, true);
+      const pointerInput = camera.inputs.attached.pointers;
+      if (pointerInput) {
+        pointerInput.buttons = [2];
+        if ("panningButton" in pointerInput) {
+          pointerInput.panningButton = 1;
+        }
+      }
+      canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
       camera.wheelPrecision = 50;
       camera.minZ = 0.001;
       camera.lowerRadiusLimit = 0.2;
@@ -160,12 +203,12 @@
 
       createAxis(scene, 0.4);
 
-      let data = null;
-      let frameKeys = [];
-      let lineMeshes = [];
-      let jointBase = null;
-      let jointMeshes = {};
+      let datasets = [];
+      let datasetMap = new Map();
+      let globalFrameKeys = [];
       let playingTimer = null;
+      let cameraFitted = false;
+      let dragDepth = 0;
 
       const fileInput = document.getElementById("fileInput");
       const loadDefaultBtn = document.getElementById("loadDefault");
@@ -177,26 +220,28 @@
       const scaleInput = document.getElementById("scale");
       const centerOnPelvis = document.getElementById("centerOnPelvis");
       const status = document.getElementById("status");
+      const tooltip = document.getElementById("tooltip");
+      const dropZone = document.getElementById("dropZone");
 
       fileInput.addEventListener("change", (ev) => {
-        const file = ev.target.files[0];
-        if (!file) {
+        if (!ev.target.files || ev.target.files.length === 0) {
           return;
         }
-        const reader = new FileReader();
-        reader.onload = () => loadFromText(reader.result);
-        reader.readAsText(file);
+        loadFiles(ev.target.files);
       });
 
       loadDefaultBtn.addEventListener("click", async () => {
         setStatus("Loading default JSON...");
+        stopPlayback();
+        clearDatasets();
         try {
           const res = await fetch(DEFAULT_JSON);
           if (!res.ok) {
             throw new Error("HTTP " + res.status);
           }
           const text = await res.text();
-          loadFromText(text);
+          addDatasetFromText(text, "default", 0);
+          finalizeLoad();
         } catch (err) {
           setStatus("Default load failed. Use file input.");
           console.warn(err);
@@ -216,14 +261,46 @@
         }
       });
 
+      document.body.addEventListener("dragenter", onDragEnter);
+      document.body.addEventListener("dragover", onDragOver);
+      document.body.addEventListener("dragleave", onDragLeave);
+      document.body.addEventListener("drop", onDrop);
+
+      function onDragEnter(ev) {
+        ev.preventDefault();
+        dragDepth += 1;
+        dropZone.classList.add("dragover");
+      }
+
+      function onDragOver(ev) {
+        ev.preventDefault();
+      }
+
+      function onDragLeave(ev) {
+        ev.preventDefault();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+          dropZone.classList.remove("dragover");
+        }
+      }
+
+      function onDrop(ev) {
+        ev.preventDefault();
+        dragDepth = 0;
+        dropZone.classList.remove("dragover");
+        if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+          loadFiles(ev.dataTransfer.files);
+        }
+      }
+
       function startPlayback() {
-        if (!data || frameKeys.length === 0) {
+        if (globalFrameKeys.length === 0) {
           return;
         }
         const fps = clamp(parseInt(fpsInput.value, 10) || 30, 1, 60);
         playBtn.textContent = "Stop";
         playingTimer = setInterval(() => {
-          const next = (frameSlider.valueAsNumber + 1) % frameKeys.length;
+          const next = (frameSlider.valueAsNumber + 1) % globalFrameKeys.length;
           frameSlider.value = String(next);
           updateFrame(next);
         }, 1000 / fps);
@@ -235,54 +312,146 @@
         playBtn.textContent = "Play";
       }
 
-      function loadFromText(text) {
+      async function loadFiles(fileList) {
+        stopPlayback();
+        clearDatasets();
+        const files = Array.from(fileList);
+        if (files.length === 0) {
+          return;
+        }
+        setStatus("Loading " + files.length + " file(s)...");
+        try {
+          const texts = await Promise.all(files.map(readFileAsText));
+          texts.forEach((text, idx) => {
+            addDatasetFromText(text, files[idx].name, idx);
+          });
+          finalizeLoad();
+        } catch (err) {
+          setStatus("File load failed.");
+          console.warn(err);
+        }
+      }
+
+      function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file);
+        });
+      }
+
+      function addDatasetFromText(text, label, fallbackIndex) {
         let parsed;
         try {
           parsed = parseJsonText(text);
         } catch (err) {
-          setStatus("JSON parse error. Check file format.");
+          setStatus("JSON parse error: " + label);
           console.error(err);
-          return;
+          return false;
         }
         if (!parsed.frames || typeof parsed.frames !== "object") {
-          setStatus("Missing frames in JSON.");
+          setStatus("Missing frames in JSON: " + label);
+          return false;
+        }
+        return addDataset(parsed, label, fallbackIndex);
+      }
+
+      function addDataset(parsed, label, fallbackIndex) {
+        const frameKeys = Object.keys(parsed.frames).sort((a, b) => Number(a) - Number(b));
+        if (frameKeys.length === 0) {
+          return false;
+        }
+        const joints = findFirstJoints(parsed.frames, frameKeys);
+        if (!joints) {
+          return false;
+        }
+        const humanIndex = extractHumanIndex(label, fallbackIndex);
+        const datasetId = "dataset_" + humanIndex + "_" + datasets.length;
+        const dataset = {
+          id: datasetId,
+          label,
+          humanIndex,
+          frames: parsed.frames,
+          frameKeys,
+          jointNames: Object.keys(joints),
+          jointBase: null,
+          jointMeshes: {},
+          lines: [],
+          currentPositions: {},
+        };
+        buildDatasetMeshes(dataset);
+        datasets.push(dataset);
+        datasetMap.set(datasetId, dataset);
+        return true;
+      }
+
+      function finalizeLoad() {
+        rebuildGlobalFrames();
+        if (globalFrameKeys.length === 0 || datasets.length === 0) {
+          setStatus("No valid frames found.");
           return;
         }
-        data = parsed;
-        frameKeys = Object.keys(data.frames).sort((a, b) => Number(a) - Number(b));
         cameraFitted = false;
         frameSlider.min = "0";
-        frameSlider.max = String(Math.max(0, frameKeys.length - 1));
+        frameSlider.max = String(Math.max(0, globalFrameKeys.length - 1));
         frameSlider.value = "0";
-        buildJointMeshes(Object.keys(getFrameJoints(frameKeys[0])));
         updateFrame(0);
-        setStatus("Frames: " + frameKeys.length);
+        setStatus("Loaded " + datasets.length + " file(s). Frames: " + globalFrameKeys.length);
+      }
+
+      function rebuildGlobalFrames() {
+        const keySet = new Set();
+        datasets.forEach((dataset) => {
+          dataset.frameKeys.forEach((key) => keySet.add(key));
+        });
+        globalFrameKeys = Array.from(keySet).sort((a, b) => Number(a) - Number(b));
+        if (globalFrameKeys.length === 0) {
+          frameLabel.textContent = "-";
+        }
       }
 
       function updateFrame(index) {
-        if (!data || frameKeys.length === 0) {
+        if (globalFrameKeys.length === 0) {
           return;
         }
-        const frameKey = frameKeys[index];
-        const frame = data.frames[frameKey];
-        if (!frame) {
-          return;
-        }
-        frameLabel.textContent = frameKey + " / " + frameKeys[frameKeys.length - 1];
-        const joints = frame[jointSpace.value];
-        if (!joints) {
-          setStatus("Missing joints in frame: " + frameKey);
-          return;
-        }
+        const frameKey = globalFrameKeys[index];
+        frameLabel.textContent = frameKey + " / " + globalFrameKeys[globalFrameKeys.length - 1];
         const scale = parseFloat(scaleInput.value) || 1;
         const centerName = centerOnPelvis.checked ? "pelvis" : null;
-        const posMap = buildPositionMap(joints, scale, centerName);
-        updateLines(posMap);
-        updateJoints(posMap);
-        fitCameraOnce(posMap);
+        const allPositions = [];
+        datasets.forEach((dataset) => {
+          const frame = dataset.frames[frameKey];
+          if (!frame) {
+            hideDataset(dataset);
+            return;
+          }
+          const joints = frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"];
+          if (!joints) {
+            hideDataset(dataset);
+            return;
+          }
+          const posMap = buildPositionMap(joints, scale, centerName);
+          dataset.currentPositions = posMap;
+          updateDatasetLines(dataset, posMap);
+          updateDatasetJoints(dataset, posMap);
+          Object.values(posMap).forEach((p) => allPositions.push(p));
+        });
+        fitCameraOnce(allPositions);
       }
 
-      function updateLines(posMap) {
+      function hideDataset(dataset) {
+        dataset.lines.forEach((line) => {
+          if (line) {
+            line.isVisible = false;
+          }
+        });
+        Object.values(dataset.jointMeshes).forEach((mesh) => {
+          mesh.isVisible = false;
+        });
+      }
+
+      function updateDatasetLines(dataset, posMap) {
         CHAINS.forEach((cfg, idx) => {
           const points = [];
           let hasAll = true;
@@ -293,26 +462,28 @@
             }
             points.push(pos || new BABYLON.Vector3(0, 0, 0));
           });
-          if (!lineMeshes[idx]) {
-            lineMeshes[idx] = BABYLON.MeshBuilder.CreateLines(
-              "chain_" + idx,
+          if (!dataset.lines[idx]) {
+            const line = BABYLON.MeshBuilder.CreateLines(
+              "chain_" + dataset.id + "_" + idx,
               { points, updatable: true },
               scene
             );
-            lineMeshes[idx].color = GROUP_COLORS[cfg.group] || GROUP_COLORS.trunk;
+            line.color = GROUP_COLORS[cfg.group] || GROUP_COLORS.trunk;
+            line.isPickable = false;
+            dataset.lines[idx] = line;
           } else {
             BABYLON.MeshBuilder.CreateLines(
-              "chain_" + idx,
-              { points, instance: lineMeshes[idx] }
+              "chain_" + dataset.id + "_" + idx,
+              { points, instance: dataset.lines[idx] }
             );
           }
-          lineMeshes[idx].isVisible = hasAll;
+          dataset.lines[idx].isVisible = hasAll;
         });
       }
 
-      function updateJoints(posMap) {
-        Object.keys(jointMeshes).forEach((name) => {
-          const mesh = jointMeshes[name];
+      function updateDatasetJoints(dataset, posMap) {
+        Object.keys(dataset.jointMeshes).forEach((name) => {
+          const mesh = dataset.jointMeshes[name];
           const pos = posMap[name];
           if (!pos) {
             mesh.isVisible = false;
@@ -323,19 +494,27 @@
         });
       }
 
-      function buildJointMeshes(jointNames) {
-        if (jointBase) {
-          jointBase.dispose();
+      function buildDatasetMeshes(dataset) {
+        if (dataset.jointBase) {
+          dataset.jointBase.dispose();
         }
-        Object.values(jointMeshes).forEach((mesh) => mesh.dispose());
-        jointMeshes = {};
-        jointBase = BABYLON.MeshBuilder.CreateSphere("joint_base", { diameter: 0.03 }, scene);
-        const mat = new BABYLON.StandardMaterial("joint_mat", scene);
+        Object.values(dataset.jointMeshes).forEach((mesh) => mesh.dispose());
+        dataset.jointMeshes = {};
+        dataset.jointBase = BABYLON.MeshBuilder.CreateSphere(
+          "joint_base_" + dataset.id,
+          { diameter: 0.03 },
+          scene
+        );
+        const mat = new BABYLON.StandardMaterial("joint_mat_" + dataset.id, scene);
         mat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
-        jointBase.material = mat;
-        jointBase.isVisible = false;
-        jointNames.forEach((name) => {
-          jointMeshes[name] = jointBase.createInstance("joint_" + name);
+        dataset.jointBase.material = mat;
+        dataset.jointBase.isVisible = false;
+        dataset.jointBase.isPickable = false;
+        dataset.jointNames.forEach((name) => {
+          const inst = dataset.jointBase.createInstance("joint_" + dataset.id + "_" + name);
+          inst.metadata = { jointName: name, datasetId: dataset.id, humanIndex: dataset.humanIndex };
+          inst.isPickable = true;
+          dataset.jointMeshes[name] = inst;
         });
       }
 
@@ -352,11 +531,6 @@
         return positions;
       }
 
-      function getFrameJoints(frameKey) {
-        const frame = data.frames[frameKey];
-        return frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"] || {};
-      }
-
       function toVector(joint, scale) {
         const x = (joint[AXIS_MAP.x] || 0) * AXIS_SIGN.x * scale;
         const y = (joint[AXIS_MAP.y] || 0) * AXIS_SIGN.y * scale;
@@ -364,12 +538,59 @@
         return new BABYLON.Vector3(x, y, z);
       }
 
-      let cameraFitted = false;
-      function fitCameraOnce(posMap) {
+      function findFirstJoints(frames, frameKeys) {
+        for (const key of frameKeys) {
+          const frame = frames[key];
+          if (!frame) {
+            continue;
+          }
+          const joints = frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"];
+          if (joints && Object.keys(joints).length > 0) {
+            return joints;
+          }
+        }
+        return null;
+      }
+
+      function extractHumanIndex(label, fallbackIndex) {
+        if (typeof label !== "string") {
+          return fallbackIndex;
+        }
+        const match = label.match(/human[_-](\d+)/i);
+        if (match) {
+          return match[1];
+        }
+        const numeric = label.match(/(\d+)/);
+        if (numeric) {
+          return numeric[1];
+        }
+        return fallbackIndex;
+      }
+
+      function clearDatasets() {
+        datasets.forEach((dataset) => disposeDataset(dataset));
+        datasets = [];
+        datasetMap = new Map();
+        globalFrameKeys = [];
+      }
+
+      function disposeDataset(dataset) {
+        dataset.lines.forEach((line) => {
+          if (line) {
+            line.dispose();
+          }
+        });
+        Object.values(dataset.jointMeshes).forEach((mesh) => mesh.dispose());
+        if (dataset.jointBase) {
+          dataset.jointBase.dispose();
+        }
+      }
+
+      function fitCameraOnce(points) {
         if (cameraFitted) {
           return;
         }
-        const bounds = getBounds(posMap);
+        const bounds = getBounds(points);
         if (!bounds) {
           return;
         }
@@ -378,9 +599,8 @@
         cameraFitted = true;
       }
 
-      function getBounds(posMap) {
-        const points = Object.values(posMap);
-        if (points.length === 0) {
+      function getBounds(points) {
+        if (!points || points.length === 0) {
           return null;
         }
         let min = points[0].clone();
@@ -429,15 +649,54 @@
           points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(size, 0, 0)]
         }, scene);
         axisX.color = new BABYLON.Color3(1, 0, 0);
+        axisX.isPickable = false;
         const axisY = BABYLON.MeshBuilder.CreateLines("axisY", {
           points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, size, 0)]
         }, scene);
         axisY.color = new BABYLON.Color3(0, 1, 0);
+        axisY.isPickable = false;
         const axisZ = BABYLON.MeshBuilder.CreateLines("axisZ", {
           points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, 0, size)]
         }, scene);
         axisZ.color = new BABYLON.Color3(0, 0.6, 1);
+        axisZ.isPickable = false;
       }
+
+      scene.onPointerObservable.add((pointerInfo) => {
+        if (pointerInfo.type !== BABYLON.PointerEventTypes.POINTERMOVE) {
+          return;
+        }
+        const pick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => {
+          return mesh && mesh.metadata && mesh.metadata.jointName;
+        });
+        if (!pick || !pick.hit || !pick.pickedMesh) {
+          tooltip.style.display = "none";
+          return;
+        }
+        const meta = pick.pickedMesh.metadata;
+        const jointName = meta.jointName;
+        const dataset = datasetMap.get(meta.datasetId);
+        if (!dataset) {
+          tooltip.style.display = "none";
+          return;
+        }
+        const pos = dataset.currentPositions[jointName];
+        if (!pos) {
+          tooltip.style.display = "none";
+          return;
+        }
+        tooltip.textContent =
+          "human_index: " + meta.humanIndex +
+          "\n" +
+          jointName +
+          "\n" +
+          "x: " + pos.x.toFixed(4) +
+          "  y: " + pos.y.toFixed(4) +
+          "  z: " + pos.z.toFixed(4);
+        tooltip.style.left = pointerInfo.event.clientX + 12 + "px";
+        tooltip.style.top = pointerInfo.event.clientY + 12 + "px";
+        tooltip.style.display = "block";
+      });
 
       engine.runRenderLoop(() => {
         scene.render();
