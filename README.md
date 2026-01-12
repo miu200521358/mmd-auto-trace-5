@@ -39,9 +39,9 @@ hf download faneggg/human3r human3r_896L.pth --local-dir ./src
 ```bash
 clear && CUDA_VISIBLE_DEVICES=0 python demo.py \
     --model_path src/human3r_896L.pth --size 512 \
-    --seq_path ../sources/45seconds/45seconds_452-652.mp4 --subsample 1 --use_ttt3r \
+    --seq_path ../sources/buster/buster_0-1700.mp4 --subsample 1 --use_ttt3r \
     --vis_threshold 2 --downsample_factor 1 --reset_interval 100 \
-    --save --output_dir ../sources/45seconds/output/ --render --render_video
+    --save --output_dir ../sources/buster/output/ --render --render_video
 ```
 
 
