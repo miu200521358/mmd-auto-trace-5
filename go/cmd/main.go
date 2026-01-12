@@ -52,23 +52,23 @@ func main() {
 	for i, frames := range allFrames {
 		motionNum := i + 1
 
-		if _, err := os.Stat(filepath.Join(filepath.Dir(frames.Path), utils.GetCompleteName(frames.Path))); err == nil {
-			mlog.I("[%d/%d] Finished Convert Motion ===========================", motionNum, allNum)
-			continue
-		}
+		// if _, err := os.Stat(filepath.Join(filepath.Dir(frames.Path), utils.GetCompleteName(frames.Path))); err == nil {
+		// 	mlog.I("[%d/%d] Finished Convert Motion ===========================", motionNum, allNum)
+		// 	continue
+		// }
 
 		mlog.I("[%d/%d] Convert Motion ===========================", motionNum, allNum)
 
 		moveMotion := usecase.Move(frames, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, moveMotion, dirPath, "2_move", "Move", motionNum, allNum)
+			utils.WriteVmdMotions(frames, moveMotion, dirPath, "_2_move", "Move", motionNum, allNum)
 		}
 
 		rotateMotion := usecase.Rotate(moveMotion, modelPath, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "3_rotate", "Rotate", motionNum, allNum)
+			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "_3_rotate", "Rotate", motionNum, allNum)
 		}
 
 		// legIkMotion := usecase.ConvertLegIk(rotateMotion, modelPath, motionNum, allNum)

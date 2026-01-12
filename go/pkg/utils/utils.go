@@ -78,11 +78,11 @@ func WriteVmdMotions(frames *mjson.Frames, motion *vmd.VmdMotion, dirPath, fileS
 }
 
 func GetVmdName(frames *mjson.Frames, fileSuffix string) string {
-	return strings.Replace(filepath.Base(frames.Path), "smooth.json", fmt.Sprintf("%s.vmd", fileSuffix), -1)
+	return strings.Replace(filepath.Base(frames.Path), ".json", fmt.Sprintf("%s.vmd", fileSuffix), -1)
 }
 
 func GetCompleteName(framePath string) string {
-	return strings.Replace(filepath.Base(framePath), "smooth.json", "complete", -1)
+	return strings.Replace(filepath.Base(framePath), ".json", "complete", -1)
 }
 
 func WriteComplete(dirPath, framePath string) {

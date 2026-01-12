@@ -1,71 +1,42 @@
 package usecase
 
 import (
-	"math"
 	"strings"
 
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mjson"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mmath"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/vmd"
 
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/utils"
 )
 
-const RATIO = 1
+const SCALE = 10.0
 
 func Move(frames *mjson.Frames, motionNum, allNum int) *vmd.VmdMotion {
 	mlog.I("[%d/%d] Convert Move ...", motionNum, allNum)
 
-	minFno := getMinFrame(frames.Frames)
-	minFrame := frames.Frames[minFno]
-	rootPos := mjson.Position{X: minFrame.Camera.X, Y: minFrame.Camera.Y, Z: minFrame.Camera.Z}
-
 	bar := utils.NewProgressBar(len(frames.Frames))
 
-	movMotion := vmd.NewVmdMotion(strings.Replace(frames.Path, "_smooth.json", "_move.vmd", -1))
+	movMotion := vmd.NewVmdMotion(strings.Replace(frames.Path, ".json", "_move.vmd", -1))
 
 	for fno, frame := range frames.Frames {
 		bar.Increment()
-
-		if frame.Confidential < 0.8 {
-			continue
-		}
 
 		for jointName, pos := range frame.Joint3D {
 			// ボーン名がある場合、ボーン移動モーションにも出力
 			if boneName, ok := joint2bones[string(jointName)]; ok {
 				bf := vmd.NewBoneFrame(float32(fno))
-				bf.Position.X = pos.X
-				bf.Position.Y = pos.Y * RATIO
-				bf.Position.Z = pos.Z * RATIO
+				bf.Position = &mmath.MVec3{X: pos.X, Y: -pos.Y, Z: pos.Z}
+				bf.Position.MulScalar(SCALE)
 				movMotion.AppendBoneFrame(boneName, bf)
 			}
-		}
-
-		{
-			bf := vmd.NewBoneFrame(float32(fno))
-			bf.Position.X = frame.Camera.X * RATIO
-			bf.Position.Y = frame.Camera.Y * RATIO
-			bf.Position.Z = (frame.Camera.Z - rootPos.Z) * 0.5
-			movMotion.AppendBoneFrame("Camera", bf)
 		}
 	}
 
 	bar.Finish()
 
 	return movMotion
-}
-
-func getMinFrame(m map[int]mjson.Frame) int {
-	minFrame := math.MaxInt
-
-	for frame := range m {
-		if frame < minFrame {
-			minFrame = frame
-		}
-	}
-
-	return minFrame
 }
 
 var joint2bones = map[string]string{

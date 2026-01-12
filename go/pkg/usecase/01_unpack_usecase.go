@@ -22,6 +22,7 @@ func Unpack(dirPath string) ([]*mjson.Frames, error) {
 		return nil, err
 	}
 
+	mlog.I("paths: %d", len(jsonPaths))
 	allFrames := make([]*mjson.Frames, len(jsonPaths))
 
 	// 全体のタスク数をカウント
@@ -62,15 +63,12 @@ func Unpack(dirPath string) ([]*mjson.Frames, error) {
 
 func getJSONFilePaths(dirPath string) ([]string, error) {
 	var paths []string
+	// 指定されたディレクトリの直下の.jsonファイルを取得
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if path != dirPath && info.IsDir() {
-			// 直下だけ参照
-			return filepath.SkipDir
-		}
-		if !info.IsDir() && (strings.HasSuffix(info.Name(), "_smooth.json")) {
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".json") {
 			paths = append(paths, path)
 		}
 		return nil

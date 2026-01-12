@@ -158,7 +158,7 @@ var boneConfigs = []*boneConfig{
 		UpFrom:        "上半身2",
 		UpTo:          "首",
 		Cancels:       []string{"上半身", "上半身2"},
-		Invert:        &mmath.MVec3{0, 0, 20},
+		Invert:        &mmath.MVec3{},
 	},
 	{
 		Name:          "左腕",
@@ -194,7 +194,7 @@ var boneConfigs = []*boneConfig{
 		UpFrom:        "上半身2",
 		UpTo:          "首",
 		Cancels:       []string{"上半身", "上半身2"},
-		Invert:        &mmath.MVec3{0, 0, -20},
+		Invert:        &mmath.MVec3{},
 	},
 	{
 		Name:          "右腕",
