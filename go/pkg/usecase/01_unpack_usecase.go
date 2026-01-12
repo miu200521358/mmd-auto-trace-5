@@ -2,18 +2,18 @@ package usecase
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/mutils/mlog"
-
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/model"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mjson"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/utils"
 )
 
 // Unpack jsonデータを読み込んで、構造体に展開する
-func Unpack(dirPath string) ([]*model.Frames, error) {
+func Unpack(dirPath string) ([]*mjson.Frames, error) {
 	mlog.I("Start: Unpack =============================")
 
 	jsonPaths, err := getJSONFilePaths(dirPath)
@@ -22,7 +22,7 @@ func Unpack(dirPath string) ([]*model.Frames, error) {
 		return nil, err
 	}
 
-	allFrames := make([]*model.Frames, len(jsonPaths))
+	allFrames := make([]*mjson.Frames, len(jsonPaths))
 
 	// 全体のタスク数をカウント
 	totalFrames := len(jsonPaths)
@@ -35,17 +35,17 @@ func Unpack(dirPath string) ([]*model.Frames, error) {
 		// JSONデータを読み込んで展開
 		file, err := os.Open(path)
 		if err != nil {
-			mlog.E("[%s] Failed to open file: %v", path, err)
+			mlog.E(fmt.Sprintf("[%s] Failed to open file: %v", path), err)
 			break
 		}
 		defer file.Close()
 
-		frames := new(model.Frames)
+		frames := new(mjson.Frames)
 		frames.Path = path
 		decoder := json.NewDecoder(file)
 		err = decoder.Decode(frames)
 		if err != nil {
-			mlog.E("[%s] Failed to decode json: %v", path, err)
+			mlog.E(fmt.Sprintf("[%s] Failed to decode json: %v", path), err)
 			break
 		}
 

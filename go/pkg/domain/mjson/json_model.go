@@ -1,4 +1,4 @@
-package model
+package mjson
 
 type Position struct {
 	X float64 `json:"x"`

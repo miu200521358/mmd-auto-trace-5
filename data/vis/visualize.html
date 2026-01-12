@@ -1,544 +1,720 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-  <title>Viz Pos</title>
-
-  <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
-
-  <style id="compiled-css" type="text/css">
-    #dropzone {
-      background-color: #F8F0D7;
-      border: solid 3px #ffcc88;
-      min-height: 50px;
-      padding: 20px;
-      text-shadow: 1px 1px 0 #fff;
+  <meta charset="utf-8">
+  <title>Joint Viewer (Babylon.js)</title>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <style>
+    :root {
+      --color-trunk: #23a6d5;
+      --color-left: #4ad66d;
+      --color-right: #ff6b6b;
     }
-
-    .setzone {
-      background-color: #F8F8F0;
-      border: solid 1px #e6e6e6;
-      padding: 10px;
-      margin-top: 10px;
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0f1115;
+      color: #e6e6e6;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     }
-
-    #dropzone.dropover {
-      background-color: #cff;
+    body {
+      display: flex;
+      flex-direction: column;
     }
-
-    .btn {
-      padding: 7px 10px 7px 10px;
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #12151c;
+      border-bottom: 1px solid #20242d;
       font-size: 12px;
-      font-weight: bold;
-      letter-spacing: 1px;
-      border: 1px solid #CCC;
-      border-bottom-color: #C6C6C6;
-      border-radius: 3px;
+    }
+    #toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #toolbar input[type="number"] {
+      width: 60px;
+    }
+    #toolbar input[type="range"] {
+      width: 200px;
+    }
+    #dropZone {
+      margin: 6px 10px;
+      padding: 8px;
+      border: 1px dashed #2f3746;
+      border-radius: 6px;
+      text-align: center;
+      color: #8b96a5;
+      background: #12151c;
+      font-size: 12px;
+    }
+    #dropZone.dragover {
+      border-color: #5aa9e6;
+      background: #182233;
+      color: #cfe6ff;
+    }
+    #renderCanvas {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #tooltip {
+      position: fixed;
+      display: none;
+      padding: 6px 8px;
+      background: rgba(20, 23, 30, 0.95);
+      border: 1px solid #2a313d;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+      pointer-events: none;
+      white-space: pre;
+      z-index: 10;
+    }
+    #status {
+      margin-left: auto;
+      color: #9aa3ad;
+    }
+    #legend {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      margin-left: 6px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: #1b1f27;
+    }
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
     }
   </style>
+</head>
+<body>
+  <div id="toolbar">
+    <input type="file" id="fileInput" accept=".json" multiple>
+    <button id="loadDefault">Load default JSON</button>
+    <label>Space
+      <select id="jointSpace">
+        <option value="global_3d_joints">global_3d_joints</option>
+        <option value="3d_joints">3d_joints</option>
+      </select>
+    </label>
+    <label>Frame
+      <input type="range" id="frameSlider" min="0" max="0" value="0">
+    </label>
+    <span id="frameLabel">-</span>
+    <button id="playBtn">Play</button>
+    <label>FPS
+      <input type="number" id="fps" value="30" min="1" max="60">
+    </label>
+    <label>Scale
+      <input type="number" id="scale" value="1" step="0.1">
+    </label>
+    <label>
+      <input type="checkbox" id="centerOnPelvis">
+      Center on pelvis
+    </label>
+    <div id="legend">
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-trunk)"></span>
+        trunk
+      </span>
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-left)"></span>
+        left
+      </span>
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-right)"></span>
+        right
+      </span>
+    </div>
+    <span id="status">Load a JSON file to begin.</span>
+  </div>
+  <div id="dropZone">Drop JSON files here</div>
+  <canvas id="renderCanvas"></canvas>
+  <div id="tooltip"></div>
+  <script>
+    (() => {
+      const DEFAULT_JSON = "../../../sources/45seconds/output/json/joints_3d_human_0.json";
+      const AXIS_MAP = { x: "x", y: "y", z: "z" };
+      const AXIS_SIGN = { x: 1, y: 1, z: 1 };
 
-  <script type="text/javascript">
+      const GROUP_COLORS = {
+        trunk: getCssColor("--color-trunk"),
+        left: getCssColor("--color-left"),
+        right: getCssColor("--color-right"),
+      };
 
-    var myViz = {};
-    myViz.posDict = {};     // データ保持
-    myViz.playflag = false; // 再生中か
+      // Edit only this section to add/remove chains.
+      const CHAINS = [
+        { group: "trunk", chain: ["head", "jaw", "neck", "spine3", "spine2", "spine1", "pelvis"] },
+        { group: "left", chain: ["neck", "left_collar", "left_shoulder", "left_elbow", "left_wrist"] },
+        { group: "right", chain: ["neck", "right_collar", "right_shoulder", "right_elbow", "right_wrist"] },
+        { group: "right", chain: ["pelvis", "right_hip", "right_knee", "right_ankle", "right_foot", "right_big_toe"] },
+        { group: "left", chain: ["pelvis", "left_hip", "left_knee", "left_ankle", "left_foot", "left_big_toe"] },
+        { group: "left", chain: ["left_ear", "left_eye", "nose1"] },
+        { group: "right", chain: ["right_ear", "right_eye", "nose1"] },
+      ];
 
-    window.onload = function () {
-      // Drag and Dropの設定
-      var elDrop = document.getElementById('dropzone');
-      var elFiles = document.getElementById('files');
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+      const scene = new BABYLON.Scene(engine);
+      scene.useRightHandedSystem = false;
+      scene.clearColor = new BABYLON.Color4(0.06, 0.06, 0.07, 1.0);
 
-      elDrop.addEventListener('dragover', function (event) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        showDropping();
-      });
+      const camera = new BABYLON.ArcRotateCamera(
+        "camera",
+        Math.PI / 2,
+        Math.PI / 2.4,
+        4,
+        new BABYLON.Vector3(0, 1, 0),
+        scene
+      );
 
-      elDrop.addEventListener('dragleave', function (event) {
-        hideDropping();
-      });
+      camera.attachControl(canvas, false);
 
-      elDrop.addEventListener('drop', function (event) {
-        event.preventDefault();
-        hideDropping();
+      // 入力割り当て（MMD互換）
+      const pointerInput = camera.inputs.attached.pointers;
+      pointerInput.buttons = [1, 2];   // 中・右
+      pointerInput.panningButton = 1;  // 中＝パン
 
-        var files = event.dataTransfer.files;
-        showFiles(files);
-      });
+      // 操作感調整
+      camera.angularSensibilityX = 1200;
+      camera.angularSensibilityY = 1200;
+      camera.panningSensibility = 1000;
+      camera.wheelPrecision = 50;
 
-      function showDropping() {
-        elDrop.classList.add('dropover');
-      }
+      // 安定性
+      camera.lowerBetaLimit = 0.01;
+      camera.upperBetaLimit = Math.PI - 0.01;
+      camera.lowerRadiusLimit = 0.2;
+      camera.minZ = 0.001;
 
-      function hideDropping() {
-        elDrop.classList.remove('dropover');
-      }
+      // 右クリックメニュー抑止
+      canvas.addEventListener("contextmenu", ev => ev.preventDefault());
 
-      // ドロップ時に呼ばれる関数
-      function showFiles(files) {
-        if (files.length < 1) {
-          alert("drop no file");
+      const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+      light.intensity = 0.9;
+
+      createAxis(scene, 0.4);
+
+      let datasets = [];
+      let datasetMap = new Map();
+      let globalFrameKeys = [];
+      let playingTimer = null;
+      let cameraFitted = false;
+      let dragDepth = 0;
+
+      const fileInput = document.getElementById("fileInput");
+      const loadDefaultBtn = document.getElementById("loadDefault");
+      const jointSpace = document.getElementById("jointSpace");
+      const frameSlider = document.getElementById("frameSlider");
+      const frameLabel = document.getElementById("frameLabel");
+      const playBtn = document.getElementById("playBtn");
+      const fpsInput = document.getElementById("fps");
+      const scaleInput = document.getElementById("scale");
+      const centerOnPelvis = document.getElementById("centerOnPelvis");
+      const status = document.getElementById("status");
+      const tooltip = document.getElementById("tooltip");
+      const dropZone = document.getElementById("dropZone");
+
+      fileInput.addEventListener("change", (ev) => {
+        if (!ev.target.files || ev.target.files.length === 0) {
+          return;
         }
+        loadFiles(ev.target.files);
+      });
 
-        myViz.posDict = {};
-        var el_fr_min = document.getElementById('fr_min');
-        var el_fr_max = document.getElementById('fr_max');
-        var el_fr = document.getElementById('fr');
-        el_fr_min.value = '';
-        el_fr_max.value = '';
+      loadDefaultBtn.addEventListener("click", async () => {
+        setStatus("Loading default JSON...");
+        stopPlayback();
+        clearDatasets();
+        try {
+          const res = await fetch(DEFAULT_JSON);
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+          const text = await res.text();
+          addDatasetFromText(text, "default", 0);
+          finalizeLoad();
+        } catch (err) {
+          setStatus("Default load failed. Use file input.");
+          console.warn(err);
+        }
+      });
 
-        for (var i = 0; i < files.length; i++) {
+      jointSpace.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
+      frameSlider.addEventListener("input", () => updateFrame(frameSlider.valueAsNumber));
+      scaleInput.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
+      centerOnPelvis.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
 
-          //FileReaderの作成
-          var reader = new FileReader();
-          //テキスト形式で読み込む
-          reader.readAsText(files[i]);
+      playBtn.addEventListener("click", () => {
+        if (playingTimer) {
+          stopPlayback();
+        } else {
+          startPlayback();
+        }
+      });
 
-          console.log(files[i].name);
+      document.body.addEventListener("dragenter", onDragEnter);
+      document.body.addEventListener("dragover", onDragOver);
+      document.body.addEventListener("dragleave", onDragLeave);
+      document.body.addEventListener("drop", onDrop);
 
-          //読込終了後の処理
-          reader.onload = function (ev) {
-            var max_x = -99999, max_y = -99999, max_z = -99999, min_x = 99999, min_y = 99999, min_z = 99999;
-            var jsonData = JSON.parse(ev.target.result)["frames"];
-            var max_fno = 0;
-            var min_fno = -1;
+      function onDragEnter(ev) {
+        ev.preventDefault();
+        dragDepth += 1;
+        dropZone.classList.add("dragover");
+      }
 
-            Object.keys(jsonData).forEach(function (fno) {
-              if (min_fno < 0) {
-                min_fno = fno;
-                console.log("min_fno: " + min_fno);
-              }
-              console.log("fno: " + fno);
-              console.log("jsonData[fno]: " + jsonData[fno]);
-              var bf_json = jsonData[fno]["global_3d_joints"];
-              console.log("bf_json: " + bf_json);
-              if (bf_json === undefined) {
-                return;
-              }
-              var bf_list = [];
-              max_fno = fno;
-              Object.keys(bf_json).forEach(function (bone_name) {
-                var bf = bf_json[bone_name];
-                bf.fno = parseInt(fno);
-                bf.name = bone_name;
-                var x = parseFloat(bf.x) * 100;
-                var y = parseFloat(bf.y) * 100;
-                var z = parseFloat(bf.z) * 100;
-                bf.x = x;
-                bf.y = z;
-                bf.z = y;
-                bf_list.push(bf);
+      function onDragOver(ev) {
+        ev.preventDefault();
+      }
 
-                if (bf.x > max_x) { max_x = bf.x };
-                if (bf.x < min_x) { min_x = bf.x };
-                if (bf.y > max_y) { max_y = bf.y };
-                if (bf.y < min_y) { min_y = bf.y };
-                if (bf.z > max_z) { max_z = bf.z };
-                if (bf.z < min_z) { min_z = bf.z };
-              });
-              myViz.posDict['3d' + fno] = bf_list;
-            });
+      function onDragLeave(ev) {
+        ev.preventDefault();
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+          dropZone.classList.remove("dragover");
+        }
+      }
 
-            document.getElementById("x_min").value = Math.floor(min_x / 100) * 100;
-            document.getElementById("x_max").value = Math.ceil(max_x / 100) * 100;
-            document.getElementById("y_min").value = Math.floor(min_y / 100) * 100;
-            document.getElementById("y_max").value = Math.ceil(max_y / 100) * 100;
-            document.getElementById("z_min").value = Math.floor(min_z / 100) * 100;
-            document.getElementById("z_max").value = Math.ceil(max_z / 100) * 100;
+      function onDrop(ev) {
+        ev.preventDefault();
+        dragDepth = 0;
+        dropZone.classList.remove("dragover");
+        if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+          loadFiles(ev.dataTransfer.files);
+        }
+      }
 
-            // 行数をFrameに表示
-            document.getElementById('fr_min').value = min_fno;
-            document.getElementById('fr_max').value = max_fno;
+      function startPlayback() {
+        if (globalFrameKeys.length === 0) {
+          return;
+        }
+        const fps = clamp(parseInt(fpsInput.value, 10) || 30, 1, 60);
+        playBtn.textContent = "Stop";
+        playingTimer = setInterval(() => {
+          const next = (frameSlider.valueAsNumber + 1) % globalFrameKeys.length;
+          frameSlider.value = String(next);
+          updateFrame(next);
+        }, 1000 / fps);
+      }
 
-            // Frameを0にする
-            document.getElementById('fr').value = min_fno;
+      function stopPlayback() {
+        clearInterval(playingTimer);
+        playingTimer = null;
+        playBtn.textContent = "Play";
+      }
 
-            plotpose();
+      async function loadFiles(fileList) {
+        stopPlayback();
+        clearDatasets();
+        const files = Array.from(fileList);
+        if (files.length === 0) {
+          return;
+        }
+        setStatus("Loading " + files.length + " file(s)...");
+        try {
+          const texts = await Promise.all(files.map(readFileAsText));
+          texts.forEach((text, idx) => {
+            addDatasetFromText(text, files[idx].name, idx);
+          });
+          finalizeLoad();
+        } catch (err) {
+          setStatus("File load failed.");
+          console.warn(err);
+        }
+      }
+
+      function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file);
+        });
+      }
+
+      function addDatasetFromText(text, label, fallbackIndex) {
+        let parsed;
+        try {
+          parsed = parseJsonText(text);
+        } catch (err) {
+          setStatus("JSON parse error: " + label);
+          console.error(err);
+          return false;
+        }
+        if (!parsed.frames || typeof parsed.frames !== "object") {
+          setStatus("Missing frames in JSON: " + label);
+          return false;
+        }
+        return addDataset(parsed, label, fallbackIndex);
+      }
+
+      function addDataset(parsed, label, fallbackIndex) {
+        const frameKeys = Object.keys(parsed.frames).sort((a, b) => Number(a) - Number(b));
+        if (frameKeys.length === 0) {
+          return false;
+        }
+        const joints = findFirstJoints(parsed.frames, frameKeys);
+        if (!joints) {
+          return false;
+        }
+        const humanIndex = parsed.human_index !== undefined
+          ? parsed.human_index
+          : extractHumanIndex(label, fallbackIndex);
+        const datasetId = "dataset_" + humanIndex + "_" + datasets.length;
+        const dataset = {
+          id: datasetId,
+          label,
+          humanIndex,
+          frames: parsed.frames,
+          frameKeys,
+          jointNames: Object.keys(joints),
+          jointBase: null,
+          jointMeshes: {},
+          lines: [],
+          currentPositions: {},
+        };
+        buildDatasetMeshes(dataset);
+        datasets.push(dataset);
+        datasetMap.set(datasetId, dataset);
+        return true;
+      }
+
+      function finalizeLoad() {
+        rebuildGlobalFrames();
+        if (globalFrameKeys.length === 0 || datasets.length === 0) {
+          setStatus("No valid frames found.");
+          return;
+        }
+        cameraFitted = false;
+        frameSlider.min = "0";
+        frameSlider.max = String(Math.max(0, globalFrameKeys.length - 1));
+        frameSlider.value = "0";
+        updateFrame(0);
+        setStatus("Loaded " + datasets.length + " file(s). Frames: " + globalFrameKeys.length);
+      }
+
+      function rebuildGlobalFrames() {
+        const keySet = new Set();
+        datasets.forEach((dataset) => {
+          dataset.frameKeys.forEach((key) => keySet.add(key));
+        });
+        globalFrameKeys = Array.from(keySet).sort((a, b) => Number(a) - Number(b));
+        if (globalFrameKeys.length === 0) {
+          frameLabel.textContent = "-";
+        }
+      }
+
+      function updateFrame(index) {
+        if (globalFrameKeys.length === 0) {
+          return;
+        }
+        const frameKey = globalFrameKeys[index];
+        frameLabel.textContent = frameKey + " / " + globalFrameKeys[globalFrameKeys.length - 1];
+        const scale = parseFloat(scaleInput.value) || 1;
+        const centerName = centerOnPelvis.checked ? "pelvis" : null;
+        const allPositions = [];
+        datasets.forEach((dataset) => {
+          const frame = dataset.frames[frameKey];
+          if (!frame) {
+            hideDataset(dataset);
+            return;
+          }
+          const joints = frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"];
+          if (!joints) {
+            hideDataset(dataset);
+            return;
+          }
+          const posMap = buildPositionMap(joints, scale, centerName);
+          dataset.currentPositions = posMap;
+          updateDatasetLines(dataset, posMap);
+          updateDatasetJoints(dataset, posMap);
+          Object.values(posMap).forEach((p) => allPositions.push(p));
+        });
+        fitCameraOnce(allPositions);
+      }
+
+      function hideDataset(dataset) {
+        dataset.lines.forEach((line) => {
+          if (line) {
+            line.isVisible = false;
+          }
+        });
+        Object.values(dataset.jointMeshes).forEach((mesh) => {
+          mesh.isVisible = false;
+        });
+      }
+
+      function updateDatasetLines(dataset, posMap) {
+        CHAINS.forEach((cfg, idx) => {
+          const points = [];
+          let hasAll = true;
+          cfg.chain.forEach((name) => {
+            const pos = posMap[name];
+            if (!pos) {
+              hasAll = false;
+            }
+            points.push(pos || new BABYLON.Vector3(0, 0, 0));
+          });
+          if (!dataset.lines[idx]) {
+            const line = BABYLON.MeshBuilder.CreateLines(
+              "chain_" + dataset.id + "_" + idx,
+              { points, updatable: true },
+              scene
+            );
+            line.color = GROUP_COLORS[cfg.group] || GROUP_COLORS.trunk;
+            line.isPickable = false;
+            dataset.lines[idx] = line;
+          } else {
+            BABYLON.MeshBuilder.CreateLines(
+              "chain_" + dataset.id + "_" + idx,
+              { points, instance: dataset.lines[idx] }
+            );
+          }
+          dataset.lines[idx].isVisible = hasAll;
+        });
+      }
+
+      function updateDatasetJoints(dataset, posMap) {
+        Object.keys(dataset.jointMeshes).forEach((name) => {
+          const mesh = dataset.jointMeshes[name];
+          const pos = posMap[name];
+          if (!pos) {
+            mesh.isVisible = false;
+            return;
+          }
+          mesh.position.copyFrom(pos);
+          mesh.isVisible = true;
+        });
+      }
+
+      function buildDatasetMeshes(dataset) {
+        if (dataset.jointBase) {
+          dataset.jointBase.dispose();
+        }
+        Object.values(dataset.jointMeshes).forEach((mesh) => mesh.dispose());
+        dataset.jointMeshes = {};
+        dataset.jointBase = BABYLON.MeshBuilder.CreateSphere(
+          "joint_base_" + dataset.id,
+          { diameter: 0.03 },
+          scene
+        );
+        const mat = new BABYLON.StandardMaterial("joint_mat_" + dataset.id, scene);
+        mat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+        dataset.jointBase.material = mat;
+        dataset.jointBase.isVisible = false;
+        dataset.jointBase.isPickable = false;
+        dataset.jointNames.forEach((name) => {
+          const inst = dataset.jointBase.createInstance("joint_" + dataset.id + "_" + name);
+          inst.metadata = { jointName: name, datasetId: dataset.id, humanIndex: dataset.humanIndex };
+          inst.isPickable = true;
+          dataset.jointMeshes[name] = inst;
+        });
+      }
+
+      function buildPositionMap(joints, scale, centerName) {
+        const positions = {};
+        let center = null;
+        if (centerName && joints[centerName]) {
+          center = toVector(joints[centerName], scale);
+        }
+        Object.keys(joints).forEach((name) => {
+          const pos = toVector(joints[name], scale);
+          positions[name] = center ? pos.subtract(center) : pos;
+        });
+        return positions;
+      }
+
+      function toVector(joint, scale) {
+        const x = (joint[AXIS_MAP.x] || 0) * AXIS_SIGN.x * scale;
+        const y = (joint[AXIS_MAP.y] || 0) * AXIS_SIGN.y * scale;
+        const z = (joint[AXIS_MAP.z] || 0) * AXIS_SIGN.z * scale;
+        return new BABYLON.Vector3(x, y, z);
+      }
+
+      function findFirstJoints(frames, frameKeys) {
+        for (const key of frameKeys) {
+          const frame = frames[key];
+          if (!frame) {
+            continue;
+          }
+          const joints = frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"];
+          if (joints && Object.keys(joints).length > 0) {
+            return joints;
           }
         }
-      }
-    }
-
-    function frameMove(val) {
-      var val_new = parseInt(document.getElementById('fr').value) + val;
-      var val_max = parseInt(document.getElementById('fr_max').value);
-      var val_min = parseInt(document.getElementById('fr_min').value);
-
-      if (isNaN(val_max)) {
-        return;
-      }
-      if (val_new > val_max) {
-        val_new = val_max;
-      } else if (val_new < val_min) {
-        val_new = val_min;
+        return null;
       }
 
-      document.getElementById('fr').value = val_new;
-      plotpose();
-    }
-
-    function next() {
-      var start = Date.now();
-      var val_new = parseInt(document.getElementById('fr').value) + 1;
-      var val_max = parseInt(document.getElementById('fr_max').value);
-      var val_min = parseInt(document.getElementById('fr_min').value);
-      var interval = parseFloat(document.getElementById('interval').value);
-
-      if (isNaN(val_max)) {
-        return;
-      }
-      if (val_new > val_max) {
-        document.getElementById('fr').value = val_min;
-        return;
-      }
-      document.getElementById('fr').value = val_new;
-      plotpose();
-      var end = Date.now();
-      // フレーム間のインターバルを設定
-      if (end - start > interval) {
-        interval = 0;
-      } else {
-        interval = interval + start - end;
-      }
-      if (myViz.playflag == true) {
-        setTimeout(function () { next() }, interval);    // 
-      }
-    }
-
-    function start() {
-      myViz.playflag = true;
-      setTimeout(function () { next() }, 0);
-    }
-
-    function stop() {
-      myViz.playflag = false;
-    }
-
-    function plotpose() {
-      var line_no = document.getElementById('fr').value
-      var poslist = myViz.posDict['3d' + line_no];
-
-      if (poslist === undefined) {
-        return
+      function extractHumanIndex(label, fallbackIndex) {
+        if (typeof label !== "string") {
+          return fallbackIndex;
+        }
+        const match = label.match(/human[_-](\d+)/i);
+        if (match) {
+          return match[1];
+        }
+        const numeric = label.match(/(\d+)/);
+        if (numeric) {
+          return numeric[1];
+        }
+        return fallbackIndex;
       }
 
-      var bone_names = {};
-      var xpos = {};
-      var ypos = {};
-      var zpos = {};
-      var key = 0;
-      for (var i = 0; i < poslist.length; i++) {
-        key = poslist[i].name;
-        xpos[key] = poslist[i].x;
-        ypos[key] = poslist[i].y;
-        zpos[key] = poslist[i].z;
-        bone_names[key] = poslist[i].name
+      function clearDatasets() {
+        datasets.forEach((dataset) => disposeDataset(dataset));
+        datasets = [];
+        datasetMap = new Map();
+        globalFrameKeys = [];
       }
 
-      var order = [['head', 'jaw', 'neck', 'spine3', 'spine2', 'spine1', 'pelvis'],
-      ['neck', 'left_collar', 'left_shoulder', 'left_elbow', 'left_wrist'],
-      ['neck', 'right_collar', 'right_shoulder', 'right_elbow', 'right_wrist'],
-      ['pelvis', 'right_hip', 'right_knee', 'right_ankle', 'right_foot', 'right_big_toe'],
-      ['pelvis', 'left_hip', 'left_knee', 'left_ankle', 'left_foot', 'left_big_toe'],
-      ['left_ear', 'left_eye', 'nose1'],
-      ['right_ear', 'right_eye', 'nose1'],
-      ];
-      var x = [];
-      var y = [];
-      var z = [];
-      var text = [];
-
-      for (var i = 0; i < order.length; i++) {
-        x.push([]);
-        y.push([]);
-        z.push([]);
-        text.push([]);
-        for (var j = 0; j < order[i].length; j++) {
-          x[i].push(xpos[order[i][j]]);
-          y[i].push(ypos[order[i][j]]);
-          z[i].push(zpos[order[i][j]]);
-          text[i].push(order[i][j]);
+      function disposeDataset(dataset) {
+        dataset.lines.forEach((line) => {
+          if (line) {
+            line.dispose();
+          }
+        });
+        Object.values(dataset.jointMeshes).forEach((mesh) => mesh.dispose());
+        if (dataset.jointBase) {
+          dataset.jointBase.dispose();
         }
       }
 
-      var x_min = parseFloat(document.getElementById("x_min").value);
-      var x_max = parseFloat(document.getElementById("x_max").value);
-      var y_min = parseFloat(document.getElementById("y_min").value);
-      var y_max = parseFloat(document.getElementById("y_max").value);
-      var z_min = parseFloat(document.getElementById("z_min").value);
-      var z_max = parseFloat(document.getElementById("z_max").value);
-      var distance = parseFloat(document.getElementById("distance").value);
-      var elev = parseFloat(document.getElementById("elev").value);
-      var azim = parseFloat(document.getElementById("azim").value);
+      function fitCameraOnce(points) {
+        if (cameraFitted) {
+          return;
+        }
+        const bounds = getBounds(points);
+        if (!bounds) {
+          return;
+        }
+        camera.target.copyFrom(bounds.center);
+        camera.radius = Math.max(bounds.radius * 2.5, 1.5);
+        cameraFitted = true;
+      }
 
-      // camera
-      var camera_x = 0;
-      var camera_y = -1 * distance;
-      var camera_z = 0;
-      // x rotation
-      var camera_tmp1_x = camera_x;
-      var camera_tmp1_y = Math.cos(-1 * elev / 180 * Math.PI) * camera_y - Math.sin(-1 * elev / 180 * Math.PI) * camera_z;
-      var camera_tmp1_z = Math.sin(-1 * elev / 180 * Math.PI) * camera_y + Math.cos(-1 * elev / 180 * Math.PI) * camera_z;
-      // z rotation
-      var camera_x = Math.cos(azim / 180 * Math.PI) * camera_tmp1_x - Math.sin(azim / 180 * Math.PI) * camera_tmp1_y;
-      var camera_y = Math.sin(azim / 180 * Math.PI) * camera_tmp1_x + Math.cos(azim / 180 * Math.PI) * camera_tmp1_y;
-      var camera_z = camera_tmp1_z;
+      function getBounds(points) {
+        if (!points || points.length === 0) {
+          return null;
+        }
+        let min = points[0].clone();
+        let max = points[0].clone();
+        points.forEach((p) => {
+          min = BABYLON.Vector3.Minimize(min, p);
+          max = BABYLON.Vector3.Maximize(max, p);
+        });
+        const center = min.add(max).scale(0.5);
+        const radius = BABYLON.Vector3.Distance(center, max);
+        return { center, radius };
+      }
 
-      var plot_title = 'Frame ' + line_no;
+      function parseJsonText(text) {
+        const cleaned = text.replace(/^\uFEFF/, "");
+        const idx = cleaned.indexOf("{");
+        if (idx > 0) {
+          return JSON.parse(cleaned.slice(idx));
+        }
+        return JSON.parse(cleaned);
+      }
 
-      Plotly.react('graph',
-        [
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[0],
-            y: y[0],
-            z: z[0],
-            text: text[0],
-            name: 'center',
-            opacity: 1,
-            line: {
-              width: 6,
-              color: 'rgb(46, 204, 113)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(46, 204, 113)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[1],
-            y: y[1],
-            z: z[1],
-            text: text[1],
-            name: 'left',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(46, 204, 113)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(46, 204, 113)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[2],
-            y: y[2],
-            z: z[2],
-            text: text[2],
-            name: 'right',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(155, 89, 182)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(155, 89, 182)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[3],
-            y: y[3],
-            z: z[3],
-            text: text[3],
-            name: 'right',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(155, 89, 182)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(155, 89, 182)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[4],
-            y: y[4],
-            z: z[4],
-            text: text[4],
-            name: 'left',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(46, 204, 113)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(46, 204, 113)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[5],
-            y: y[5],
-            z: z[5],
-            text: text[5],
-            name: 'left',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(46, 204, 113)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(46, 204, 113)',
-              size: 2
-            }
-          },
-          {
-            type: 'scatter3d',
-            mode: 'lines+markers',
-            x: x[6],
-            y: y[6],
-            z: z[6],
-            text: text[6],
-            name: 'right',
-            opacity: 2,
-            line: {
-              width: 6,
-              color: 'rgb(155, 89, 182)',
-              reversescale: false
-            },
-            marker: {
-              color: 'rgb(155, 89, 182)',
-              size: 2
-            }
-          },
-        ],
-        {
-          scene: {
-            aspectmode: 'manual',
-            aspectratio: { x: (x_max - x_min) / (z_max - z_min) * 1.3, y: (y_max - y_min) / (z_max - z_min) * 1.3, z: 1.3 },
-            xaxis: {
-              range: [x_min, x_max]
-            },
-            yaxis: {
-              range: [y_min, y_max]
-            },
-            zaxis: {
-              range: [z_min, z_max]
-            },
-            camera: {
-              eye: {
-                x: camera_x,
-                y: camera_y,
-                z: camera_z
-              }
-            },
-          },
-          title: plot_title,
-          height: 600,
-          showlegend: false,
-        },
-        { showSendToCloud: true }
-      );
-    }
+      function setStatus(message) {
+        status.textContent = message;
+      }
 
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function getCssColor(varName) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        return hexToColor3(value || "#ffffff");
+      }
+
+      function hexToColor3(hex) {
+        const value = hex.replace("#", "");
+        const r = parseInt(value.slice(0, 2), 16) / 255;
+        const g = parseInt(value.slice(2, 4), 16) / 255;
+        const b = parseInt(value.slice(4, 6), 16) / 255;
+        return new BABYLON.Color3(r, g, b);
+      }
+
+      function createAxis(scene, size) {
+        const axisX = BABYLON.MeshBuilder.CreateLines("axisX", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(size, 0, 0)]
+        }, scene);
+        axisX.color = new BABYLON.Color3(1, 0, 0);
+        axisX.isPickable = false;
+        const axisY = BABYLON.MeshBuilder.CreateLines("axisY", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, size, 0)]
+        }, scene);
+        axisY.color = new BABYLON.Color3(0, 1, 0);
+        axisY.isPickable = false;
+        const axisZ = BABYLON.MeshBuilder.CreateLines("axisZ", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, 0, size)]
+        }, scene);
+        axisZ.color = new BABYLON.Color3(0, 0.6, 1);
+        axisZ.isPickable = false;
+      }
+
+      scene.onPointerObservable.add((pointerInfo) => {
+        if (pointerInfo.type !== BABYLON.PointerEventTypes.POINTERMOVE) {
+          return;
+        }
+        const pick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => {
+          return mesh && mesh.metadata && mesh.metadata.jointName;
+        });
+        if (!pick || !pick.hit || !pick.pickedMesh) {
+          tooltip.style.display = "none";
+          return;
+        }
+        const meta = pick.pickedMesh.metadata;
+        const jointName = meta.jointName;
+        const dataset = datasetMap.get(meta.datasetId);
+        if (!dataset) {
+          tooltip.style.display = "none";
+          return;
+        }
+        const pos = dataset.currentPositions[jointName];
+        if (!pos) {
+          tooltip.style.display = "none";
+          return;
+        }
+        tooltip.textContent =
+          "human_index: " + meta.humanIndex +
+          "\n" +
+          jointName +
+          "\n" +
+          "x: " + pos.x.toFixed(4) +
+          "  y: " + pos.y.toFixed(4) +
+          "  z: " + pos.z.toFixed(4);
+        tooltip.style.left = pointerInfo.event.clientX + 12 + "px";
+        tooltip.style.top = pointerInfo.event.clientY + 12 + "px";
+        tooltip.style.display = "block";
+      });
+
+      engine.runRenderLoop(() => {
+        scene.render();
+      });
+      window.addEventListener("resize", () => engine.resize());
+    })();
   </script>
-
-</head>
-
-<body>
-  <div id="dropzone" effectAllowed="move">Drop "xx.json" file here!
-  </div>
-  <div id="set3d" class="setzone">
-    <table>
-      <tr>
-        <td>
-          xRange:
-        </td>
-        <td>
-          <input type="text" id="x_min" value="-1500" style="width:50px;" onblur="frameMove(0);">
-          - <input type="text" id="x_max" value="1500" style="width:50px;" onblur="frameMove(0);">
-        </td>
-        <td style="padding-left:20px;">
-          yRange:
-        </td>
-        <td>
-          <input type="text" id="y_min" value="-1000" style="width:50px;" onblur="frameMove(0);">
-          - <input type="text" id="y_max" value="1000" style="width:50px;" onblur="frameMove(0);">
-        </td>
-        <td style="padding-left:20px;">
-          zRange:
-        </td>
-        <td>
-          <input type="text" id="z_min" value="-200" style="width:50px;" onblur="frameMove(0);">
-          - <input type="text" id="z_max" value="1800" style="width:50px;" onblur="frameMove(0);">
-        </td>
-      </tr>
-      <tr>
-        <td style="padding-top:5px;">
-          distance:
-        </td>
-        <td style="padding-top:5px;">
-          <input type="text" id="distance" value="2.5" style="width:50px;" onblur="frameMove(0);">
-        </td>
-        <td style="padding-top:5px;padding-left:20px;">
-          elevationAngle:
-        </td>
-        <td style="padding-top:5px;">
-          <input type="text" id="elev" value="18" style="width:50px;" onblur="frameMove(0);">
-        </td>
-        <td style="padding-top:5px;padding-left:20px;">
-          azimuthAngle:
-        </td>
-        <td style="padding-top:5px;">
-          <input type="text" id="azim" value="10" style="width:50px;" onblur="frameMove(0);">
-        </td>
-      </tr>
-    </table>
-  </div>
-
-  <div class="setzone">
-    <table>
-      <tr>
-        <td>
-          Frame:
-        </td>
-        <td>
-          <input type="text" id="fr" value="" style="width:50px;" onblur="frameMove(0);">
-          (<input type="text" id="fr_min" value="" style="width:50px;" disabled> - <input type="text" id="fr_max"
-            value="" style="width:50px;" disabled>)
-        </td>
-        <td style="padding-left:20px;">
-          <input style="width: 50px;" class="btn" type="button" value="<30" onclick="frameMove(-30);">
-          <input style="width: 50px;" class="btn" type="button" value="<5" onclick="frameMove(-5);">
-          <input style="width: 50px;" class="btn" type="button" value="<1" onclick="frameMove(-1);">
-          <input style="width: 50px;" class="btn" type="button" value="1>" onclick="frameMove(1);">
-          <input style="width: 50px;" class="btn" type="button" value="5>" onclick="frameMove(5);">
-          <input style="width: 50px;" class="btn" type="button" value="30>" onclick="frameMove(30);">
-        </td>
-      </tr>
-      <tr>
-        <td colspan="2" style="padding-top:5px;">
-          <input style="width: 100px;" class="btn" type="button" value="slow play" onclick="start();">
-          <input style="width: 50px;" class="btn" type="button" value="stop" onclick="stop();">
-        </td>
-        <td style="padding-top:5px;padding-left:20px;">
-          Interval(ms):<input type="text" id="interval" value="60" style="width:50px;">
-        </td>
-      </tr>
-    </table>
-  </div>
-  <div id="graph"></div>
 </body>
-
 </html>

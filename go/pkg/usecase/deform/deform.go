@@ -4,9 +4,7 @@ import (
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/delta"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mmath"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/physics"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/pmx"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/state"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/vmd"
 )
 
@@ -284,103 +282,4 @@ func DeformBeforePhysics(
 	UpdateGlobalMatrix(deltas.Bones, model.Bones.LayerSortedIndexes)
 
 	return deltas
-}
-
-// DeformForPhysics 物理剛体位置を更新する
-func DeformForPhysics(
-	physics physics.IPhysics,
-	model *pmx.PmxModel,
-	deltas *delta.VmdDeltas,
-	isEnabledPhysics bool,
-	physicsResetType vmd.PhysicsResetType,
-) *delta.VmdDeltas {
-	return DeformForPhysicsWithPhysicsDeltas(physics, model, deltas, nil, isEnabledPhysics, physicsResetType)
-}
-
-// DeformForPhysicsWithPhysicsDeltas 物理剛体位置を更新する（物理デルタ情報付き）
-func DeformForPhysicsWithPhysicsDeltas(
-	physics physics.IPhysics,
-	model *pmx.PmxModel,
-	deltas *delta.VmdDeltas,
-	physicsDeltas *delta.PhysicsDeltas,
-	isEnabledPhysics bool,
-	physicsResetType vmd.PhysicsResetType,
-) *delta.VmdDeltas {
-	if model == nil {
-		return deltas
-	}
-
-	// 物理剛体のサイズ・形状更新（物理デルタがある場合）
-	if physicsDeltas != nil && physicsDeltas.RigidBodies != nil {
-		model.RigidBodies.ForEach(func(rigidBodyIndex int, rigidBody *pmx.RigidBody) bool {
-			// 剛体デルタを確認
-			rigidBodyDelta := physicsDeltas.RigidBodies.Get(rigidBodyIndex)
-			if rigidBodyDelta != nil && (rigidBodyDelta.Size != nil || rigidBodyDelta.Mass != 0.0) {
-				// サイズ変更があった場合、剛体の形状・質量を更新
-				physics.UpdateRigidBodyShapeMass(model.Index(), rigidBody, rigidBodyDelta)
-			}
-
-			return true
-		})
-	}
-
-	model.RigidBodies.ForEach(func(rigidBodyIndex int, rigidBody *pmx.RigidBody) bool {
-		// 物理剛体位置を更新
-		if rigidBody.Bone != nil {
-			if (isEnabledPhysics && rigidBody.PhysicsType != pmx.PHYSICS_TYPE_DYNAMIC) ||
-				physicsResetType != vmd.PHYSICS_RESET_TYPE_NONE {
-				// 通常はボーン追従剛体・物理＋ボーン剛体だけ。物理リセット時は全部更新
-				physics.UpdateTransform(model.Index(), rigidBody.Bone,
-					deltas.Bones.Get(rigidBody.Bone.Index()).FilledGlobalMatrix(), rigidBody)
-			}
-		}
-
-		return true
-	})
-
-	return deltas
-}
-
-// DeformAfterPhysics 物理後のボーンデフォーム処理を実行する
-func DeformAfterPhysics(
-	shared *state.SharedState,
-	physics physics.IPhysics,
-	model *pmx.PmxModel,
-	motion *vmd.VmdMotion,
-	vmdDeltas *delta.VmdDeltas,
-	frame float32,
-) *delta.VmdDeltas {
-	if model == nil || motion == nil {
-		return vmdDeltas
-	}
-
-	if shared.IsEnabledPhysics() {
-		// 物理剛体位置を更新
-		for _, boneIndex := range model.Bones.LayerSortedIndexes {
-			bone, err := model.Bones.Get(boneIndex)
-			if err != nil || bone == nil || !bone.HasDynamicPhysics() {
-				continue
-			}
-			for _, rigidBody := range bone.RigidBodies {
-				if rigidBody.PhysicsType == pmx.PHYSICS_TYPE_STATIC {
-					continue
-				}
-				bonePhysicsGlobalMatrix := physics.GetRigidBodyBoneMatrix(model.Index(), rigidBody)
-				if vmdDeltas.Bones != nil && bonePhysicsGlobalMatrix != nil {
-					bd := delta.NewBoneDeltaByGlobalMatrix(bone, frame,
-						bonePhysicsGlobalMatrix, vmdDeltas.Bones.Get(bone.ParentIndex))
-					vmdDeltas.Bones.Update(bd)
-				}
-			}
-		}
-	}
-
-	// ボーンデフォーム情報を埋める(物理後のみ埋める)
-	vmdDeltas.Bones = fillBoneDeform(model, motion, vmdDeltas, frame,
-		model.Bones.LayerSortedBoneIndexes[true], true, true)
-
-	// ボーンデフォーム情報を更新する
-	UpdateGlobalMatrix(vmdDeltas.Bones, model.Bones.LayerSortedBoneIndexes[true])
-
-	return vmdDeltas
 }

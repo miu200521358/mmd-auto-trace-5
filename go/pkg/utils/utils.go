@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/cheggaaa/pb/v3"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/model"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/mutils/mlog"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/vmd"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mjson"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/vmd"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/infrastructure/repository"
 )
 
 func GetVmdFilePaths(dirPath string, suffix string) ([]string, error) {
@@ -37,8 +38,8 @@ func ReadVmdFiles(allVmdPaths []string) ([]*vmd.VmdMotion, error) {
 	allPrevMotions := make([]*vmd.VmdMotion, len(allVmdPaths))
 	for i, vmdPath := range allVmdPaths {
 		mlog.I("Read Vmd [%02d/%02d] %s", i+1, len(allVmdPaths), filepath.Base(vmdPath))
-		vr := &vmd.VmdMotionReader{}
-		motion, err := vr.ReadByFilepath(vmdPath)
+		vr := repository.NewVmdRepository(true)
+		motion, err := vr.Load(vmdPath)
 		if err != nil {
 			mlog.E("Failed to read vmd: %v", err)
 			return nil, err
@@ -61,20 +62,22 @@ func NewProgressBar(total int) *pb.ProgressBar {
 	return bar
 }
 
-func WriteVmdMotions(frames *model.Frames, motion *vmd.VmdMotion, dirPath, fileSuffix, logPrefix string, motionNum, allNum int) error {
+func WriteVmdMotions(frames *mjson.Frames, motion *vmd.VmdMotion, dirPath, fileSuffix, logPrefix string, motionNum, allNum int) error {
 	mlog.I("Output %s Motion [%d/%d] ...", logPrefix, motionNum, allNum)
 
-	motion.Path = filepath.Join(dirPath, GetVmdName(frames, fileSuffix))
-	motion.SetName("MMD Motion Auto Trace v4 Model")
+	path := filepath.Join(dirPath, GetVmdName(frames, fileSuffix))
+	motion.SetPath(path)
+	motion.SetName("MMD Motion Auto Trace v4 mjson")
 
-	err := vmd.Write(motion)
+	rep := repository.NewVmdRepository(true)
+	err := rep.Save(path, motion, true)
 	if err != nil {
-		mlog.E("Failed to write %s vmd %d: %v", logPrefix, motionNum, err)
+		mlog.E(fmt.Sprintf("Failed to write %s vmd %d: %v", logPrefix, motionNum), err)
 	}
 	return nil
 }
 
-func GetVmdName(frames *model.Frames, fileSuffix string) string {
+func GetVmdName(frames *mjson.Frames, fileSuffix string) string {
 	return strings.Replace(filepath.Base(frames.Path), "smooth.json", fmt.Sprintf("%s.vmd", fileSuffix), -1)
 }
 

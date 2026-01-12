@@ -3,19 +3,20 @@ package usecase
 import (
 	"strings"
 
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/mmath"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/mutils/mlog"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/pmx"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/mmath"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/pmx"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/domain/vmd"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/infrastructure/repository"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/utils"
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/vmd"
 )
 
-func Rotate(prevMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) *vmd.VmdMotion {
+func Rotate(moveMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) *vmd.VmdMotion {
 	mlog.I("[%d/%d] Convert Rotate ...", motionNum, allNum)
 
 	// モデル読み込み
-	pr := &pmx.PmxReader{}
-	data, err := pr.ReadByFilepath(modelPath)
+	pr := repository.NewPmxRepository(false)
+	data, err := pr.Load(modelPath)
 	if err != nil {
 		mlog.E("Failed to read pmx: %v", err)
 	}
@@ -23,31 +24,34 @@ func Rotate(prevMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) 
 
 	bar := utils.NewProgressBar(len(boneConfigs))
 
-	rotMotion := vmd.NewVmdMotion(strings.Replace(prevMotion.Path, "_move.vmd", "_rotate.vmd", -1))
+	rotMotion := vmd.NewVmdMotion(strings.Replace(moveMotion.Path(), "_move.vmd", "_rotate.vmd", -1))
 
-	for _, fno := range prevMotion.BoneFrames.Get("Camera").RegisteredIndexes.List() {
-		{
-			bf := vmd.NewBoneFrame(fno)
-			bf.Position = prevMotion.BoneFrames.Get("Camera").Get(fno).Position
-			rotMotion.AppendRegisteredBoneFrame(pmx.CENTER.String(), bf)
-		}
-	}
+	moveMotion.BoneFrames.Get("下半身先").ForEach(func(fno float32, bf *vmd.BoneFrame) bool {
+		centerBf := vmd.NewBoneFrame(fno)
+		centerBf.Position = bf.Position.Copy()
+		rotMotion.AppendBoneFrame(pmx.CENTER.String(), centerBf)
+		return true
+	})
 
 	for _, boneConfig := range boneConfigs {
 		bar.Increment()
 
-		if !prevMotion.BoneFrames.Contains(boneConfig.Name) || !prevMotion.BoneFrames.Contains(boneConfig.DirectionFrom) ||
-			!prevMotion.BoneFrames.Contains(boneConfig.DirectionTo) || !prevMotion.BoneFrames.Contains(boneConfig.UpFrom) ||
-			!prevMotion.BoneFrames.Contains(boneConfig.UpTo) {
+		if !moveMotion.BoneFrames.Contains(boneConfig.Name) || !moveMotion.BoneFrames.Contains(boneConfig.DirectionFrom) ||
+			!moveMotion.BoneFrames.Contains(boneConfig.DirectionTo) || !moveMotion.BoneFrames.Contains(boneConfig.UpFrom) ||
+			!moveMotion.BoneFrames.Contains(boneConfig.UpTo) {
 			continue
 		}
 
-		for _, fno := range prevMotion.BoneFrames.Get(boneConfig.Name).RegisteredIndexes.List() {
+		moveMotion.BoneFrames.Get(boneConfig.Name).ForEach(func(fno float32, bf *vmd.BoneFrame) bool {
 			// モデルのボーン角度
-			boneDirectionFrom := pmxModel.Bones.GetByName(boneConfig.DirectionFrom).Position
-			boneDirectionTo := pmxModel.Bones.GetByName(boneConfig.DirectionTo).Position
-			boneUpFrom := pmxModel.Bones.GetByName(boneConfig.UpFrom).Position
-			boneUpTo := pmxModel.Bones.GetByName(boneConfig.UpTo).Position
+			boneDirectionFromBone, _ := pmxModel.Bones.GetByName(boneConfig.DirectionFrom)
+			boneDirectionFrom := boneDirectionFromBone.Position
+			boneDirectionToBone, _ := pmxModel.Bones.GetByName(boneConfig.DirectionTo)
+			boneDirectionTo := boneDirectionToBone.Position
+			boneUpFromBone, _ := pmxModel.Bones.GetByName(boneConfig.UpFrom)
+			boneUpFrom := boneUpFromBone.Position
+			boneUpToBone, _ := pmxModel.Bones.GetByName(boneConfig.UpTo)
+			boneUpTo := boneUpToBone.Position
 
 			boneDirectionVector := boneDirectionTo.Subed(boneDirectionFrom).Normalize()
 			boneUpVector := boneUpTo.Subed(boneUpFrom).Normalize()
@@ -56,10 +60,10 @@ func Rotate(prevMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) 
 			boneQuat := mmath.NewMQuaternionFromDirection(boneDirectionVector, boneCrossVector)
 
 			// モーションのボーン角度
-			motionDirectionFromPos := prevMotion.BoneFrames.Get(boneConfig.DirectionFrom).Get(fno).Position
-			motionDirectionToPos := prevMotion.BoneFrames.Get(boneConfig.DirectionTo).Get(fno).Position
-			motionUpFromPos := prevMotion.BoneFrames.Get(boneConfig.UpFrom).Get(fno).Position
-			motionUpToPos := prevMotion.BoneFrames.Get(boneConfig.UpTo).Get(fno).Position
+			motionDirectionFromPos := moveMotion.BoneFrames.Get(boneConfig.DirectionFrom).Get(fno).Position
+			motionDirectionToPos := moveMotion.BoneFrames.Get(boneConfig.DirectionTo).Get(fno).Position
+			motionUpFromPos := moveMotion.BoneFrames.Get(boneConfig.UpFrom).Get(fno).Position
+			motionUpToPos := moveMotion.BoneFrames.Get(boneConfig.UpTo).Get(fno).Position
 
 			motionDirectionVector := motionDirectionToPos.Subed(motionDirectionFromPos).Normalize()
 			motionUpVector := motionUpToPos.Subed(motionUpFromPos).Normalize()
@@ -74,14 +78,16 @@ func Rotate(prevMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) 
 			}
 
 			// 調整角度
-			invertQuat := mmath.NewMQuaternionFromDegrees(boneConfig.Invert.GetX(), boneConfig.Invert.GetY(), boneConfig.Invert.GetZ())
+			invertQuat := mmath.NewMQuaternionFromDegrees(boneConfig.Invert.X, boneConfig.Invert.Y, boneConfig.Invert.Z)
 
 			// ボーンフレーム登録
-			bf := vmd.NewBoneFrame(fno)
-			bf.Rotation = invertQuat.Mul(cancelQuat.Inverse()).Mul(motionQuat).Mul(boneQuat.Inverse()).Normalize()
+			rotBf := vmd.NewBoneFrame(fno)
+			rotBf.Rotation = invertQuat.Mul(cancelQuat.Inverse()).Mul(motionQuat).Mul(boneQuat.Inverse()).Normalize()
 
-			rotMotion.AppendRegisteredBoneFrame(boneConfig.Name, bf)
-		}
+			rotMotion.AppendBoneFrame(boneConfig.Name, rotBf)
+
+			return true
+		})
 	}
 
 	bar.Finish()

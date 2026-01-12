@@ -2,11 +2,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/miu200521358/mmd-auto-trace-5/pkg/mutils/mlog"
+	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/usecase"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/utils"
 )
@@ -33,7 +34,8 @@ func init() {
 
 func main() {
 	if modelPath == "" || dirPath == "" {
-		mlog.E("modelPath and dirPath must be provided")
+		err := fmt.Errorf("modelPath and dirPath must be provided")
+		mlog.E("%v", err)
 		os.Exit(1)
 	}
 
@@ -60,46 +62,46 @@ func main() {
 		moveMotion := usecase.Move(frames, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, moveMotion, dirPath, "1_move", "Move", motionNum, allNum)
+			utils.WriteVmdMotions(frames, moveMotion, dirPath, "2_move", "Move", motionNum, allNum)
 		}
 
 		rotateMotion := usecase.Rotate(moveMotion, modelPath, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "2_rotate", "Rotate", motionNum, allNum)
+			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "3_rotate", "Rotate", motionNum, allNum)
 		}
 
-		legIkMotion := usecase.ConvertLegIk(rotateMotion, modelPath, motionNum, allNum)
+		// legIkMotion := usecase.ConvertLegIk(rotateMotion, modelPath, motionNum, allNum)
 
-		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, legIkMotion, dirPath, "3_legIk", "LegIK", motionNum, allNum)
-		}
+		// if mlog.IsDebug() {
+		// 	utils.WriteVmdMotions(frames, legIkMotion, dirPath, "3_legIk", "LegIK", motionNum, allNum)
+		// }
 
-		groundMotion := usecase.FixGround(legIkMotion, modelPath, motionNum, allNum)
+		// groundMotion := usecase.FixGround(legIkMotion, modelPath, motionNum, allNum)
 
-		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, groundMotion, dirPath, "4_ground", "Ground", motionNum, allNum)
-		}
+		// if mlog.IsDebug() {
+		// 	utils.WriteVmdMotions(frames, groundMotion, dirPath, "4_ground", "Ground", motionNum, allNum)
+		// }
 
-		heelMotion := usecase.FixHeel(frames, groundMotion, modelPath, motionNum, allNum)
+		// heelMotion := usecase.FixHeel(frames, groundMotion, modelPath, motionNum, allNum)
 
-		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, heelMotion, dirPath, "5_heel", "Heel", motionNum, allNum)
-		}
+		// if mlog.IsDebug() {
+		// 	utils.WriteVmdMotions(frames, heelMotion, dirPath, "5_heel", "Heel", motionNum, allNum)
+		// }
 
-		armIkMotion := usecase.ConvertArmIk(heelMotion, modelPath, motionNum, allNum)
+		// armIkMotion := usecase.ConvertArmIk(heelMotion, modelPath, motionNum, allNum)
 
-		utils.WriteVmdMotions(frames, armIkMotion, dirPath, "full", "Full", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, armIkMotion, dirPath, "full", "Full", motionNum, allNum)
 
-		narrowReduceMotion := usecase.Reduce(armIkMotion, modelPath, 0.05, 0.00001, 0, "narrow", motionNum, allNum)
+		// narrowReduceMotion := usecase.Reduce(armIkMotion, modelPath, 0.05, 0.00001, 0, "narrow", motionNum, allNum)
 
-		utils.WriteVmdMotions(frames, narrowReduceMotion, dirPath, "reduce_narrow", "Narrow Reduce", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, narrowReduceMotion, dirPath, "reduce_narrow", "Narrow Reduce", motionNum, allNum)
 
-		wideReduceMotions := usecase.Reduce(armIkMotion, modelPath, 0.07, 0.00005, 2, "wide", motionNum, allNum)
+		// wideReduceMotions := usecase.Reduce(armIkMotion, modelPath, 0.07, 0.00005, 2, "wide", motionNum, allNum)
 
-		utils.WriteVmdMotions(frames, wideReduceMotions, dirPath, "reduce_wide", "Wide Reduce", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, wideReduceMotions, dirPath, "reduce_wide", "Wide Reduce", motionNum, allNum)
 
-		utils.WriteComplete(dirPath, frames.Path)
+		// utils.WriteComplete(dirPath, frames.Path)
 
 		// 開始時間から指定時間過ぎてたら終了
 		if time.Since(startTime) > time.Duration(limitMinutes)*time.Minute {
