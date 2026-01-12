@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Joint Viewer (Babylon.js)</title>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <style>
+    :root {
+      --color-trunk: #23a6d5;
+      --color-left: #4ad66d;
+      --color-right: #ff6b6b;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0f1115;
+      color: #e6e6e6;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    }
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #12151c;
+      border-bottom: 1px solid #20242d;
+      font-size: 12px;
+    }
+    #toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #toolbar input[type="number"] {
+      width: 60px;
+    }
+    #toolbar input[type="range"] {
+      width: 200px;
+    }
+    #renderCanvas {
+      width: 100%;
+      height: calc(100% - 56px);
+      display: block;
+    }
+    #status {
+      margin-left: auto;
+      color: #9aa3ad;
+    }
+    #legend {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      margin-left: 6px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: #1b1f27;
+    }
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <input type="file" id="fileInput" accept=".json">
+    <button id="loadDefault">Load default JSON</button>
+    <label>Space
+      <select id="jointSpace">
+        <option value="global_3d_joints">global_3d_joints</option>
+        <option value="3d_joints">3d_joints</option>
+      </select>
+    </label>
+    <label>Frame
+      <input type="range" id="frameSlider" min="0" max="0" value="0">
+    </label>
+    <span id="frameLabel">-</span>
+    <button id="playBtn">Play</button>
+    <label>FPS
+      <input type="number" id="fps" value="30" min="1" max="60">
+    </label>
+    <label>Scale
+      <input type="number" id="scale" value="1" step="0.1">
+    </label>
+    <label>
+      <input type="checkbox" id="centerOnPelvis">
+      Center on pelvis
+    </label>
+    <div id="legend">
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-trunk)"></span>
+        trunk
+      </span>
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-left)"></span>
+        left
+      </span>
+      <span class="legend-item">
+        <span class="swatch" style="background: var(--color-right)"></span>
+        right
+      </span>
+    </div>
+    <span id="status">Load a JSON file to begin.</span>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+  <script>
+    (() => {
+      const DEFAULT_JSON = "../../../sources/45seconds/output/json/joints_3d_human_0.json";
+      const AXIS_MAP = { x: "x", y: "y", z: "z" };
+      const AXIS_SIGN = { x: 1, y: 1, z: 1 };
+
+      const GROUP_COLORS = {
+        trunk: getCssColor("--color-trunk"),
+        left: getCssColor("--color-left"),
+        right: getCssColor("--color-right"),
+      };
+
+      // Edit only this section to add/remove chains.
+      const CHAINS = [
+        { group: "trunk", chain: ["head", "jaw", "neck", "spine3", "spine2", "spine1", "pelvis"] },
+        { group: "left", chain: ["neck", "left_collar", "left_shoulder", "left_elbow", "left_wrist"] },
+        { group: "right", chain: ["neck", "right_collar", "right_shoulder", "right_elbow", "right_wrist"] },
+        { group: "right", chain: ["pelvis", "right_hip", "right_knee", "right_ankle", "right_foot", "right_big_toe"] },
+        { group: "left", chain: ["pelvis", "left_hip", "left_knee", "left_ankle", "left_foot", "left_big_toe"] },
+        { group: "left", chain: ["left_ear", "left_eye", "nose1"] },
+        { group: "right", chain: ["right_ear", "right_eye", "nose1"] },
+      ];
+
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+      const scene = new BABYLON.Scene(engine);
+      scene.useRightHandedSystem = false;
+      scene.clearColor = new BABYLON.Color4(0.06, 0.06, 0.07, 1.0);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "camera",
+        Math.PI / 2,
+        Math.PI / 2.4,
+        4,
+        new BABYLON.Vector3(0, 1, 0),
+        scene
+      );
+      camera.attachControl(canvas, true);
+      camera.wheelPrecision = 50;
+      camera.minZ = 0.001;
+      camera.lowerRadiusLimit = 0.2;
+
+      const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+      light.intensity = 0.9;
+
+      createAxis(scene, 0.4);
+
+      let data = null;
+      let frameKeys = [];
+      let lineMeshes = [];
+      let jointBase = null;
+      let jointMeshes = {};
+      let playingTimer = null;
+
+      const fileInput = document.getElementById("fileInput");
+      const loadDefaultBtn = document.getElementById("loadDefault");
+      const jointSpace = document.getElementById("jointSpace");
+      const frameSlider = document.getElementById("frameSlider");
+      const frameLabel = document.getElementById("frameLabel");
+      const playBtn = document.getElementById("playBtn");
+      const fpsInput = document.getElementById("fps");
+      const scaleInput = document.getElementById("scale");
+      const centerOnPelvis = document.getElementById("centerOnPelvis");
+      const status = document.getElementById("status");
+
+      fileInput.addEventListener("change", (ev) => {
+        const file = ev.target.files[0];
+        if (!file) {
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => loadFromText(reader.result);
+        reader.readAsText(file);
+      });
+
+      loadDefaultBtn.addEventListener("click", async () => {
+        setStatus("Loading default JSON...");
+        try {
+          const res = await fetch(DEFAULT_JSON);
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+          const text = await res.text();
+          loadFromText(text);
+        } catch (err) {
+          setStatus("Default load failed. Use file input.");
+          console.warn(err);
+        }
+      });
+
+      jointSpace.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
+      frameSlider.addEventListener("input", () => updateFrame(frameSlider.valueAsNumber));
+      scaleInput.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
+      centerOnPelvis.addEventListener("change", () => updateFrame(frameSlider.valueAsNumber));
+
+      playBtn.addEventListener("click", () => {
+        if (playingTimer) {
+          stopPlayback();
+        } else {
+          startPlayback();
+        }
+      });
+
+      function startPlayback() {
+        if (!data || frameKeys.length === 0) {
+          return;
+        }
+        const fps = clamp(parseInt(fpsInput.value, 10) || 30, 1, 60);
+        playBtn.textContent = "Stop";
+        playingTimer = setInterval(() => {
+          const next = (frameSlider.valueAsNumber + 1) % frameKeys.length;
+          frameSlider.value = String(next);
+          updateFrame(next);
+        }, 1000 / fps);
+      }
+
+      function stopPlayback() {
+        clearInterval(playingTimer);
+        playingTimer = null;
+        playBtn.textContent = "Play";
+      }
+
+      function loadFromText(text) {
+        let parsed;
+        try {
+          parsed = parseJsonText(text);
+        } catch (err) {
+          setStatus("JSON parse error. Check file format.");
+          console.error(err);
+          return;
+        }
+        if (!parsed.frames || typeof parsed.frames !== "object") {
+          setStatus("Missing frames in JSON.");
+          return;
+        }
+        data = parsed;
+        frameKeys = Object.keys(data.frames).sort((a, b) => Number(a) - Number(b));
+        cameraFitted = false;
+        frameSlider.min = "0";
+        frameSlider.max = String(Math.max(0, frameKeys.length - 1));
+        frameSlider.value = "0";
+        buildJointMeshes(Object.keys(getFrameJoints(frameKeys[0])));
+        updateFrame(0);
+        setStatus("Frames: " + frameKeys.length);
+      }
+
+      function updateFrame(index) {
+        if (!data || frameKeys.length === 0) {
+          return;
+        }
+        const frameKey = frameKeys[index];
+        const frame = data.frames[frameKey];
+        if (!frame) {
+          return;
+        }
+        frameLabel.textContent = frameKey + " / " + frameKeys[frameKeys.length - 1];
+        const joints = frame[jointSpace.value];
+        if (!joints) {
+          setStatus("Missing joints in frame: " + frameKey);
+          return;
+        }
+        const scale = parseFloat(scaleInput.value) || 1;
+        const centerName = centerOnPelvis.checked ? "pelvis" : null;
+        const posMap = buildPositionMap(joints, scale, centerName);
+        updateLines(posMap);
+        updateJoints(posMap);
+        fitCameraOnce(posMap);
+      }
+
+      function updateLines(posMap) {
+        CHAINS.forEach((cfg, idx) => {
+          const points = [];
+          let hasAll = true;
+          cfg.chain.forEach((name) => {
+            const pos = posMap[name];
+            if (!pos) {
+              hasAll = false;
+            }
+            points.push(pos || new BABYLON.Vector3(0, 0, 0));
+          });
+          if (!lineMeshes[idx]) {
+            lineMeshes[idx] = BABYLON.MeshBuilder.CreateLines(
+              "chain_" + idx,
+              { points, updatable: true },
+              scene
+            );
+            lineMeshes[idx].color = GROUP_COLORS[cfg.group] || GROUP_COLORS.trunk;
+          } else {
+            BABYLON.MeshBuilder.CreateLines(
+              "chain_" + idx,
+              { points, instance: lineMeshes[idx] }
+            );
+          }
+          lineMeshes[idx].isVisible = hasAll;
+        });
+      }
+
+      function updateJoints(posMap) {
+        Object.keys(jointMeshes).forEach((name) => {
+          const mesh = jointMeshes[name];
+          const pos = posMap[name];
+          if (!pos) {
+            mesh.isVisible = false;
+            return;
+          }
+          mesh.position.copyFrom(pos);
+          mesh.isVisible = true;
+        });
+      }
+
+      function buildJointMeshes(jointNames) {
+        if (jointBase) {
+          jointBase.dispose();
+        }
+        Object.values(jointMeshes).forEach((mesh) => mesh.dispose());
+        jointMeshes = {};
+        jointBase = BABYLON.MeshBuilder.CreateSphere("joint_base", { diameter: 0.03 }, scene);
+        const mat = new BABYLON.StandardMaterial("joint_mat", scene);
+        mat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+        jointBase.material = mat;
+        jointBase.isVisible = false;
+        jointNames.forEach((name) => {
+          jointMeshes[name] = jointBase.createInstance("joint_" + name);
+        });
+      }
+
+      function buildPositionMap(joints, scale, centerName) {
+        const positions = {};
+        let center = null;
+        if (centerName && joints[centerName]) {
+          center = toVector(joints[centerName], scale);
+        }
+        Object.keys(joints).forEach((name) => {
+          const pos = toVector(joints[name], scale);
+          positions[name] = center ? pos.subtract(center) : pos;
+        });
+        return positions;
+      }
+
+      function getFrameJoints(frameKey) {
+        const frame = data.frames[frameKey];
+        return frame[jointSpace.value] || frame.global_3d_joints || frame["3d_joints"] || {};
+      }
+
+      function toVector(joint, scale) {
+        const x = (joint[AXIS_MAP.x] || 0) * AXIS_SIGN.x * scale;
+        const y = (joint[AXIS_MAP.y] || 0) * AXIS_SIGN.y * scale;
+        const z = (joint[AXIS_MAP.z] || 0) * AXIS_SIGN.z * scale;
+        return new BABYLON.Vector3(x, y, z);
+      }
+
+      let cameraFitted = false;
+      function fitCameraOnce(posMap) {
+        if (cameraFitted) {
+          return;
+        }
+        const bounds = getBounds(posMap);
+        if (!bounds) {
+          return;
+        }
+        camera.target.copyFrom(bounds.center);
+        camera.radius = Math.max(bounds.radius * 2.5, 1.5);
+        cameraFitted = true;
+      }
+
+      function getBounds(posMap) {
+        const points = Object.values(posMap);
+        if (points.length === 0) {
+          return null;
+        }
+        let min = points[0].clone();
+        let max = points[0].clone();
+        points.forEach((p) => {
+          min = BABYLON.Vector3.Minimize(min, p);
+          max = BABYLON.Vector3.Maximize(max, p);
+        });
+        const center = min.add(max).scale(0.5);
+        const radius = BABYLON.Vector3.Distance(center, max);
+        return { center, radius };
+      }
+
+      function parseJsonText(text) {
+        const cleaned = text.replace(/^\uFEFF/, "");
+        const idx = cleaned.indexOf("{");
+        if (idx > 0) {
+          return JSON.parse(cleaned.slice(idx));
+        }
+        return JSON.parse(cleaned);
+      }
+
+      function setStatus(message) {
+        status.textContent = message;
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function getCssColor(varName) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        return hexToColor3(value || "#ffffff");
+      }
+
+      function hexToColor3(hex) {
+        const value = hex.replace("#", "");
+        const r = parseInt(value.slice(0, 2), 16) / 255;
+        const g = parseInt(value.slice(2, 4), 16) / 255;
+        const b = parseInt(value.slice(4, 6), 16) / 255;
+        return new BABYLON.Color3(r, g, b);
+      }
+
+      function createAxis(scene, size) {
+        const axisX = BABYLON.MeshBuilder.CreateLines("axisX", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(size, 0, 0)]
+        }, scene);
+        axisX.color = new BABYLON.Color3(1, 0, 0);
+        const axisY = BABYLON.MeshBuilder.CreateLines("axisY", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, size, 0)]
+        }, scene);
+        axisY.color = new BABYLON.Color3(0, 1, 0);
+        const axisZ = BABYLON.MeshBuilder.CreateLines("axisZ", {
+          points: [new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, 0, size)]
+        }, scene);
+        axisZ.color = new BABYLON.Color3(0, 0.6, 1);
+      }
+
+      engine.runRenderLoop(() => {
+        scene.render();
+      });
+      window.addEventListener("resize", () => engine.resize());
+    })();
+  </script>
+</body>
+</html>
