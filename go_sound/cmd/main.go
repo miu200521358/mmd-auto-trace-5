@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -31,8 +32,9 @@ func main() {
 	}
 
 	list := flag.Bool("list", false, "list available sound names")
+	exportPath := flag.String("export", "", "export selected sound to a file or directory")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [-list] <sound-name>\n", path.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "Usage: %s [-list] [-export <path>] <sound-name>\n", path.Base(os.Args[0]))
 		if len(index.names) == 0 {
 			fmt.Fprintln(os.Stderr, "No embedded sounds found.")
 			return
@@ -67,13 +69,28 @@ func main() {
 		exitf("failed to read %s: %v", soundPath, err)
 	}
 
+	if *exportPath != "" {
+		outPath, err := resolveExportPath(*exportPath, name)
+		if err != nil {
+			exitf("failed to resolve export path: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			exitf("failed to create export directory: %v", err)
+		}
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			exitf("failed to write %s: %v", outPath, err)
+		}
+		fmt.Printf("exported: %s\n", outPath)
+		return
+	}
+
 	if err := playMP3(data); err != nil {
 		exitf("failed to play %s: %v", name, err)
 	}
 }
 
 func buildSoundIndex() (soundIndex, error) {
-	entries, err := fs.ReadDir(soundFS, "sound")
+	entries, err := fs.ReadDir(soundFS, "data")
 	if err != nil {
 		return soundIndex{}, err
 	}
@@ -95,7 +112,7 @@ func buildSoundIndex() (soundIndex, error) {
 		if _, exists := index.byName[base]; exists {
 			return soundIndex{}, fmt.Errorf("duplicate sound name: %s", base)
 		}
-		index.byName[base] = path.Join("sound", filename)
+		index.byName[base] = path.Join("data", filename)
 		index.names = append(index.names, base)
 	}
 
@@ -133,6 +150,27 @@ func playMP3(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func resolveExportPath(target string, name string) (string, error) {
+	if target == "" {
+		return "", fmt.Errorf("export path is empty")
+	}
+	info, err := os.Stat(target)
+	if err == nil && info.IsDir() {
+		return filepath.Join(target, name+".mp3"), nil
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			if strings.HasSuffix(target, string(os.PathSeparator)) || strings.HasSuffix(target, "/") {
+				clean := filepath.Clean(target)
+				return filepath.Join(clean, name+".mp3"), nil
+			}
+			return target, nil
+		}
+		return "", err
+	}
+	return target, nil
 }
 
 func exitf(format string, args ...any) {
