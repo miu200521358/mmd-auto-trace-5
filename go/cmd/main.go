@@ -47,8 +47,12 @@ func main() {
 	}
 
 	startTime := time.Now()
-
 	allNum := len(allFrames)
+
+	mlog.I("[%d] Calculation Center Z ===========================", allNum)
+
+	minY, maxZ := usecase.CalcMinYZ(allFrames)
+
 	for i, frames := range allFrames {
 		motionNum := i + 1
 
@@ -59,16 +63,16 @@ func main() {
 
 		mlog.I("[%d/%d] Convert Motion ===========================", motionNum, allNum)
 
-		moveMotion := usecase.Move(frames, motionNum, allNum)
+		moveMotion := usecase.Move(frames, motionNum, allNum, minY, maxZ)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, moveMotion, dirPath, "_2_move", "Move", motionNum, allNum)
+			utils.WriteVmdMotions(frames, moveMotion, dirPath, "_1move", "Move", motionNum, allNum)
 		}
 
 		rotateMotion := usecase.Rotate(moveMotion, modelPath, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "_3_rotate", "Rotate", motionNum, allNum)
+			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "_2rotate", "Rotate", motionNum, allNum)
 		}
 
 		// legIkMotion := usecase.ConvertLegIk(rotateMotion, modelPath, motionNum, allNum)

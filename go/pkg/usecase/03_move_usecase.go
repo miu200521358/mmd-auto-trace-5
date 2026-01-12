@@ -11,9 +11,9 @@ import (
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/utils"
 )
 
-const SCALE = 10.0
+const SCALE = 0.1259496 * 100
 
-func Move(frames *mjson.Frames, motionNum, allNum int) *vmd.VmdMotion {
+func Move(frames *mjson.Frames, motionNum, allNum int, minY, maxZ float64) *vmd.VmdMotion {
 	mlog.I("[%d/%d] Convert Move ...", motionNum, allNum)
 
 	bar := utils.NewProgressBar(len(frames.Frames))
@@ -27,10 +27,22 @@ func Move(frames *mjson.Frames, motionNum, allNum int) *vmd.VmdMotion {
 			// ボーン名がある場合、ボーン移動モーションにも出力
 			if boneName, ok := joint2bones[string(jointName)]; ok {
 				bf := vmd.NewBoneFrame(float32(fno))
-				bf.Position = &mmath.MVec3{X: pos.X, Y: -pos.Y, Z: pos.Z}
+				bf.Position = &mmath.MVec3{X: pos.X, Y: -pos.Y - minY, Z: pos.Z - maxZ}
 				bf.Position.MulScalar(SCALE)
 				movMotion.AppendBoneFrame(boneName, bf)
 			}
+		}
+
+		// 追加で計算するボーン
+		{
+			bf := vmd.NewBoneFrame(float32(fno))
+			bf.Position = movMotion.BoneFrames.Get("右足").Get(float32(fno)).Position.Added(movMotion.BoneFrames.Get("左足").Get(float32(fno)).Position).DivedScalar(2)
+			movMotion.AppendBoneFrame("下半身先", bf)
+		}
+		{
+			bf := vmd.NewBoneFrame(float32(fno))
+			bf.Position = movMotion.BoneFrames.Get("上半身").Get(float32(fno)).Position.Copy()
+			movMotion.AppendBoneFrame("下半身", bf)
 		}
 	}
 
@@ -40,8 +52,11 @@ func Move(frames *mjson.Frames, motionNum, allNum int) *vmd.VmdMotion {
 }
 
 var joint2bones = map[string]string{
-	"nose":            "鼻",
+	"pelvis":          "上半身",
+	"spine2":          "上半身2",
+	"spine3":          "上半身3",
 	"neck":            "首",
+	"head":            "頭",
 	"right_collar":    "右肩",
 	"right_shoulder":  "右腕",
 	"right_elbow":     "右ひじ",
@@ -50,7 +65,6 @@ var joint2bones = map[string]string{
 	"left_shoulder":   "左腕",
 	"left_elbow":      "左ひじ",
 	"left_wrist":      "左手首",
-	"spine1":          "下半身",
 	"right_hip":       "右足",
 	"right_knee":      "右ひざ",
 	"right_ankle":     "右足首",
@@ -67,8 +81,4 @@ var joint2bones = map[string]string{
 	"right_big_toe":   "右つま先親",
 	"right_small_toe": "右つま先子",
 	"right_heel":      "右かかと",
-	"spine2":          "上半身",
-	"spine3":          "上半身2",
-	"head":            "頭",
-	"pelvis":          "下半身先",
 }

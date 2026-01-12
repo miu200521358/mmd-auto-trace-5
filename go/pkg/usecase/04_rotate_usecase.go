@@ -26,7 +26,7 @@ func Rotate(moveMotion *vmd.VmdMotion, modelPath string, motionNum, allNum int) 
 
 	rotMotion := vmd.NewVmdMotion(strings.Replace(moveMotion.Path(), "_move.vmd", "_rotate.vmd", -1))
 
-	moveMotion.BoneFrames.Get("下半身先").ForEach(func(fno float32, bf *vmd.BoneFrame) bool {
+	moveMotion.BoneFrames.Get("下半身").ForEach(func(fno float32, bf *vmd.BoneFrame) bool {
 		centerBf := vmd.NewBoneFrame(fno)
 		centerBf.Position = bf.Position.Copy()
 		rotMotion.AppendBoneFrame(pmx.CENTER.String(), centerBf)
@@ -153,10 +153,10 @@ var boneConfigs = []*boneConfig{
 	},
 	{
 		Name:          "左肩",
-		DirectionFrom: "左肩",
+		DirectionFrom: "首",
 		DirectionTo:   "左腕",
 		UpFrom:        "上半身2",
-		UpTo:          "首",
+		UpTo:          "上半身3",
 		Cancels:       []string{"上半身", "上半身2"},
 		Invert:        &mmath.MVec3{},
 	},
@@ -164,8 +164,8 @@ var boneConfigs = []*boneConfig{
 		Name:          "左腕",
 		DirectionFrom: "左腕",
 		DirectionTo:   "左ひじ",
-		UpFrom:        "左腕",
-		UpTo:          "右腕",
+		UpFrom:        "首",
+		UpTo:          "左腕",
 		Cancels:       []string{"上半身", "上半身2", "左肩"},
 		Invert:        &mmath.MVec3{},
 	},
@@ -189,10 +189,10 @@ var boneConfigs = []*boneConfig{
 	},
 	{
 		Name:          "右肩",
-		DirectionFrom: "右肩",
+		DirectionFrom: "首",
 		DirectionTo:   "右腕",
 		UpFrom:        "上半身2",
-		UpTo:          "首",
+		UpTo:          "上半身3",
 		Cancels:       []string{"上半身", "上半身2"},
 		Invert:        &mmath.MVec3{},
 	},
@@ -200,7 +200,7 @@ var boneConfigs = []*boneConfig{
 		Name:          "右腕",
 		DirectionFrom: "右腕",
 		DirectionTo:   "右ひじ",
-		UpFrom:        "右肩",
+		UpFrom:        "首",
 		UpTo:          "右腕",
 		Cancels:       []string{"上半身", "上半身2", "右肩"},
 		Invert:        &mmath.MVec3{},
