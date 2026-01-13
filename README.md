@@ -50,8 +50,13 @@ clear && CUDA_VISIBLE_DEVICES=0 python demo.py \
     --save --output_dir ../sources/45seconds/output/ --render --render_video
 ```
 
+## vmd 変換
 
-
+```bash
+mat5 --logLevel=DEBUG \
+    -modelPath=../../data/pmx/v4_trace_model.pmx \
+    --dirPath=../../../sources/45seconds/output/json/
+```
 
 
 
