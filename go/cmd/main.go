@@ -4,8 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/config/mlog"
 	"github.com/miu200521358/mmd-auto-trace-5/pkg/usecase"
@@ -15,13 +13,11 @@ import (
 var logLevel string
 var modelPath string
 var dirPath string
-var limitMinutes int
 
 func init() {
 	flag.StringVar(&logLevel, "logLevel", "INFO", "set log level")
 	flag.StringVar(&modelPath, "modelPath", "", "set model path")
 	flag.StringVar(&dirPath, "dirPath", "", "set directory path")
-	flag.IntVar(&limitMinutes, "limitMinutes", 30, "set directory path")
 	flag.Parse()
 
 	switch logLevel {
@@ -46,7 +42,6 @@ func main() {
 		return
 	}
 
-	startTime := time.Now()
 	allNum := len(allFrames)
 
 	mlog.I("[%d] Calculation Center Z ===========================", allNum)
@@ -106,23 +101,6 @@ func main() {
 		// utils.WriteVmdMotions(frames, wideReduceMotions, dirPath, "reduce_wide", "Wide Reduce", motionNum, allNum)
 
 		// utils.WriteComplete(dirPath, frames.Path)
-
-		// 開始時間から指定時間過ぎてたら終了
-		if time.Since(startTime) > time.Duration(limitMinutes)*time.Minute {
-			return
-		}
-	}
-
-	// complete ファイルを出力する
-	{
-		completePath := filepath.Join(dirPath, "all_complete")
-		mlog.I("Output Complete File %s", completePath)
-		f, err := os.Create(completePath)
-		if err != nil {
-			mlog.E("Failed to create complete file: %v", err)
-			return
-		}
-		defer f.Close()
 	}
 
 	mlog.I("Done!")
