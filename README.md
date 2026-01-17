@@ -60,6 +60,15 @@ CUDA_VISIBLE_DEVICES=0 python demo.py \
     --save-json --output_dir "../sources/buster/buster_1167-1267/"
 ```
 
+```bash
+clear && CUDA_VISIBLE_DEVICES=0 python demo.py     \
+    --model_path src/human3r_896L.pth --size 512     \
+    --vis_threshold 2 --downsample_factor 1 --reset_interval 100 \
+    --mat5_dir ../mmd-auto-trace-5 --block_frame_num 1000 --block_index 0 \
+    --seq_path "../sources/buster/buster_0-1700.mp4" --subsample 1 --use_ttt3r \
+    --save-json --output_dir "../sources/buster/buster_0-1700/"
+```
+
 ## vmd 変換
 
 ```bash

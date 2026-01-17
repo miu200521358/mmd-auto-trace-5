@@ -35,8 +35,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	jsonDirPath := fmt.Sprintf("%s/json", dirPath)
+
+	if _, err := os.Stat(jsonDirPath); os.IsNotExist(err) {
+		mlog.E(fmt.Sprintf("json dir not found: %s", jsonDirPath), err)
+		return
+	}
+
 	mlog.I("Unpack json ================")
-	allFrames, err := usecase.Unpack(dirPath)
+	allFrames, err := usecase.Unpack(jsonDirPath)
 	if err != nil {
 		mlog.E("Failed to unpack: %v", err)
 		return
@@ -47,6 +54,13 @@ func main() {
 	mlog.I("[%d] Calculation Center Z ===========================", allNum)
 
 	minY, maxZ := usecase.CalcMinYZ(allFrames)
+	vmdDirPath := fmt.Sprintf("%s/vmd", dirPath)
+
+	err = os.MkdirAll(vmdDirPath, os.ModePerm)
+	if err != nil {
+		mlog.E("Failed to create vmd dir: %v", err)
+		return
+	}
 
 	for i, frames := range allFrames {
 		motionNum := i + 1
@@ -61,46 +75,46 @@ func main() {
 		moveMotion := usecase.Move(frames, motionNum, allNum, minY, maxZ)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, moveMotion, dirPath, "_1move", "Move", motionNum, allNum)
+			utils.WriteVmdMotions(frames, moveMotion, vmdDirPath, "_1move", "Move", motionNum, allNum)
 		}
 
 		rotateMotion := usecase.Rotate(moveMotion, modelPath, motionNum, allNum)
 
 		if mlog.IsDebug() {
-			utils.WriteVmdMotions(frames, rotateMotion, dirPath, "_2rotate", "Rotate", motionNum, allNum)
+			utils.WriteVmdMotions(frames, rotateMotion, vmdDirPath, "_2rotate", "Rotate", motionNum, allNum)
 		}
 
 		// legIkMotion := usecase.ConvertLegIk(rotateMotion, modelPath, motionNum, allNum)
 
 		// if mlog.IsDebug() {
-		// 	utils.WriteVmdMotions(frames, legIkMotion, dirPath, "3_legIk", "LegIK", motionNum, allNum)
+		// 	utils.WriteVmdMotions(frames, legIkMotion, vmdDirPath, "3_legIk", "LegIK", motionNum, allNum)
 		// }
 
 		// groundMotion := usecase.FixGround(legIkMotion, modelPath, motionNum, allNum)
 
 		// if mlog.IsDebug() {
-		// 	utils.WriteVmdMotions(frames, groundMotion, dirPath, "4_ground", "Ground", motionNum, allNum)
+		// 	utils.WriteVmdMotions(frames, groundMotion, vmdDirPath, "4_ground", "Ground", motionNum, allNum)
 		// }
 
 		// heelMotion := usecase.FixHeel(frames, groundMotion, modelPath, motionNum, allNum)
 
 		// if mlog.IsDebug() {
-		// 	utils.WriteVmdMotions(frames, heelMotion, dirPath, "5_heel", "Heel", motionNum, allNum)
+		// 	utils.WriteVmdMotions(frames, heelMotion, vmdDirPath, "5_heel", "Heel", motionNum, allNum)
 		// }
 
 		// armIkMotion := usecase.ConvertArmIk(heelMotion, modelPath, motionNum, allNum)
 
-		// utils.WriteVmdMotions(frames, armIkMotion, dirPath, "full", "Full", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, armIkMotion, vmdDirPath, "full", "Full", motionNum, allNum)
 
 		// narrowReduceMotion := usecase.Reduce(armIkMotion, modelPath, 0.05, 0.00001, 0, "narrow", motionNum, allNum)
 
-		// utils.WriteVmdMotions(frames, narrowReduceMotion, dirPath, "reduce_narrow", "Narrow Reduce", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, narrowReduceMotion, vmdDirPath, "reduce_narrow", "Narrow Reduce", motionNum, allNum)
 
 		// wideReduceMotions := usecase.Reduce(armIkMotion, modelPath, 0.07, 0.00005, 2, "wide", motionNum, allNum)
 
-		// utils.WriteVmdMotions(frames, wideReduceMotions, dirPath, "reduce_wide", "Wide Reduce", motionNum, allNum)
+		// utils.WriteVmdMotions(frames, wideReduceMotions, vmdDirPath, "reduce_wide", "Wide Reduce", motionNum, allNum)
 
-		// utils.WriteComplete(dirPath, frames.Path)
+		// utils.WriteComplete(vmdDirPath, frames.Path)
 	}
 
 	mlog.I("Done!")
